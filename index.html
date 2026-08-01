@@ -1008,15 +1008,15 @@ const SCENTS = [
       vibrato:{rate:6,depth:0.01}, tremolo:{rate:6,depth:0.2},
       pitchOffset:3, glideSteps:0, hits:2, hitSpacing:1, space:0.62, duration:1.4 } },
 
-  { id:'deep', emo:'🌊', name:'깊은 물', desc:'아주 낮고 묵직하게 — 한 옥타브 아래로 가라앉아요',
+  { id:'deep', emo:'🌊', name:'깊은 물', desc:'아주 낮고 먹먹하게 — 물속에서 들리듯 둔하게',
     recipe:{ voice:'drone', octave:0.5,
-      partials:[{ratio:0.5,gain:0.9},{ratio:1,gain:1},{ratio:1.5,gain:0.25},{ratio:2,gain:0.12}],
-      envelope:{attack:0.4,decay:1.4,sustain:0.75,release:2.6},
-      filter:{type:'lowpass',cutoff:340,q:1.4,sweepTo:180,sweepTime:2.8},
-      noise:{amount:0.1,bright:0.08,burst:false},
-      vibrato:{rate:1.5,depth:0.006}, tremolo:{rate:1,depth:0.18},
-      pitchOffset:-3, glideSteps:-1, hits:1, hitSpacing:1, space:0.9, duration:3.4 } },
-];
+      partials:[{ratio:0.5,gain:1},{ratio:1,gain:0.95},{ratio:1.5,gain:0.12},{ratio:2,gain:0.06}],
+      envelope:{attack:0.7,decay:1.6,sustain:0.8,release:3.0},
+      filter:{type:'lowpass',cutoff:250,q:0.7,sweepTo:130,sweepTime:3.2},
+      noise:{amount:0.05,bright:0.04,burst:false},
+      vibrato:{rate:1.1,depth:0.005}, tremolo:{rate:0.7,depth:0.22},
+      pitchOffset:-4, glideSteps:-1, hits:1, hitSpacing:1, space:0.9, duration:4.0 } },
+  ];
 function scentById(id){ return SCENTS.find(x=>x.id===id) || null; }
 function renderScents(sel){
   const box=$('scentGrid'); box.innerHTML='';
