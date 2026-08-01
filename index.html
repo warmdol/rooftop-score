@@ -42,8 +42,10 @@
   #cutCanvas { max-width:94vw; max-height:62vh; border-radius:8px; touch-action:none;
     box-shadow:0 8px 30px rgba(0,0,0,.6); }
   #cutSheet .row { display:flex; gap:8px; }
-  #cutSheet button { padding:11px 16px; border-radius:13px; font-size:13.5px;
-    border:1px solid rgba(255,255,255,.22); background:#1b1e27; color:var(--ink); }
+  #cutSheet button { padding:12px 18px; border-radius:13px; font-size:14px;
+    border:1px solid rgba(255,255,255,.22); background:#1b1e27; color:var(--ink);
+    touch-action:manipulation; position:relative; z-index:2; }
+  #cutSheet .row { position:relative; z-index:2; margin-top:6px; }
   #cutSheet button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
   .frag .del { position:absolute; top:-30px; right:-12px; width:24px; height:24px; border-radius:50%;
     background:rgba(20,20,20,.85); color:#fff; border:1px solid #666; font-size:13px; line-height:22px;
@@ -142,7 +144,7 @@
 
 <div id="topbar" style="display:none">
   <h1>옥상 악보</h1><span class="sub" id="mode-label"></span>
-  <button id="btnGyro" title="자이로 따라가기">📡</button>
+  <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
 
@@ -222,7 +224,7 @@ const stage = $('stage'), arLayer = $('arLayer'), ropeCanvas = $('ropeCanvas'), 
 /* ---------- 자이로 정합 (LIVE 모드) ----------
    회전 속도(rotationRate)를 적분한 순수 상대각. 줄을 긋는 순간 0으로 리셋되므로
    나침반 드리프트·각도 랩 문제가 없다. 이동(평행이동)은 못 잡음 → 재보정으로 해결 */
-const gyro = { on:true, angX:0, angY:0, dx:0, dy:0 };
+const gyro = { on:false, angX:0, angY:0, dx:0, dy:0 };
 window.addEventListener('devicemotion', e=>{
   const r=e.rotationRate;
   if(!r || (r.beta==null && r.gamma==null)) return;
@@ -766,16 +768,26 @@ cutCv.addEventListener('pointermove', e=>{ if(!cut.drawing) return;
   const p=cutPointer(e), last=cut.pts[cut.pts.length-1];
   if(Math.hypot(p.x-last.x,p.y-last.y)>3) cut.pts.push(p);
   drawCutter(); });
-cutCv.addEventListener('pointerup', ()=>{ cut.drawing=false;
+cutCv.addEventListener('pointerup', e=>{
+  e.preventDefault(); e.stopPropagation();
+  try{ cutCv.releasePointerCapture(e.pointerId); }catch(_){}
+  cut.drawing=false;
   $('cutOk').disabled = cut.pts.length<9;
   drawCutter(); });
+cutCv.addEventListener('pointercancel', ()=>{ cut.drawing=false; drawCutter(); });
 
-$('cutRetry').addEventListener('click', ()=>{ cut.pts=[]; $('cutOk').disabled=true; drawCutter(); });
-$('cutRect').addEventListener('click', ()=>{
+function bindTap(el, fn){
+  let fired=false;
+  el.addEventListener('pointerup', e=>{ e.preventDefault(); e.stopPropagation(); fired=true; fn(); setTimeout(()=>fired=false,400); });
+  el.addEventListener('click', e=>{ if(fired) return; fn(); });
+}
+bindTap($('cutRetry'), ()=>{ cut.pts=[]; $('cutOk').disabled=true; drawCutter(); });
+bindTap($('cutRect'), ()=>{
   $('cutSheet').style.display='none';
   addPhotoFrag(cut.img.src, false);
 });
-$('cutOk').addEventListener('click', ()=>{
+bindTap($('cutOk'), ()=>{
+  if($('cutOk').disabled) return;
   $('cutSheet').style.display='none';
   addPhotoFrag(cutoutPng(cut.img, cut.pts, cutCv.width, cutCv.height), true);
 });
