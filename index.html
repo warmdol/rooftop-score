@@ -137,6 +137,14 @@
   #setSheet button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
   #btnSettings { width:32px; height:32px; border-radius:9px; font-size:14px;
     border:1px solid rgba(255,255,255,.2); background:rgba(24,26,34,.7); margin-left:auto; }
+  #scentGrid { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; width:min(360px,92vw); }
+  .scent { padding:11px 6px; border-radius:14px; text-align:center; line-height:1.35;
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.05); color:var(--ink); }
+  .scent .emo { font-size:19px; display:block; margin-bottom:2px; }
+  .scent .nm  { font-size:11.5px; font-weight:600; }
+  .scent.on { border-color:var(--accent); background:rgba(255,217,122,.16); color:var(--accent); }
+  .scent:active { transform:scale(.96); }
+  #scentDesc { font-size:11.5px; color:var(--accent); min-height:16px; text-align:center; }
   #noteChips { display:flex; flex-wrap:wrap; gap:5px; justify-content:center;
     width:min(360px,92vw); }
   .chip { font-size:10.5px; padding:4px 8px; border-radius:9px; line-height:1.2;
@@ -193,7 +201,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v13</span><button id="btnSettings" title="AI 설정">⚙️</button>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v14</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -267,20 +275,17 @@
 
 <div id="noteSheet">
   <div class="thumb" id="noteThumb"></div>
-  <h3 id="noteTitle">이 조각을 한 문장으로 받아 적어주세요</h3>
+  <h3 id="noteTitle">이 조각을 어떤 향으로 헹굴까요?</h3>
   <div class="sub" id="noteBase">조각에서 소리를 우려내는 중…</div>
-  <div class="row" style="margin-bottom:2px">
-    <button id="notePlayBase">▶ 조각의 소리</button>
-    <button id="notePlayMod" class="primary">▶ 문장을 얹은 소리</button>
-    <button id="noteAi" style="display:none">✨ AI로 만들기</button>
+  <div class="row">
+    <button id="notePlayBase">▶ 헹구기 전 소리</button>
   </div>
-  <input id="noteInput" type="text" maxlength="40" placeholder="어떤 문장이든 좋아요">
-  <div id="noteChips"></div>
-  <div id="noteEcho"></div>
+  <div id="scentGrid"></div>
+  <div id="scentDesc">향을 고르면 그 결로 소리가 헹궈져요</div>
   <div class="sub" style="font-size:10.5px; opacity:.65">소리가 안 들리면 기기 무음 모드를 확인해주세요</div>
   <div class="row">
-    <button id="noteSkip">그냥 담기</button>
-    <button id="noteOk" class="primary">적어서 담기</button>
+    <button id="noteSkip">향 없이 담기</button>
+    <button id="noteOk" class="primary">이 향으로 담기</button>
   </div>
 </div>
 
@@ -917,6 +922,7 @@ function describeMod(m){
 let notePending=null;
 function askNote(item){
   notePending=item;
+  item.scent=null; item.recipe=null;
   const th=$('noteThumb'); th.innerHTML='';
   if(item.kind==='photo'){
     const im=document.createElement('img'); im.src=item.img; th.appendChild(im);
@@ -925,13 +931,8 @@ function askNote(item){
     drawWaveform(cv, item.buffer); th.appendChild(cv);
   }
   $('noteTitle').textContent = item.kind==='photo'
-    ? '이 장면을 한 문장으로 받아 적어주세요'
-    : '이 소리를 한 문장으로 받아 적어주세요';
-  $('noteInput').value='';
-  $('noteEcho').textContent='문장을 적으면 소리가 그쪽으로 기울어요';
-  renderChips(readSentence(''));
-  $('noteAi').style.display = AI_KEY.has() ? '' : 'none';
-  notePending.recipe = null;
+    ? '이 장면을 어떤 향으로 헹굴까요?'
+    : '이 소리를 어떤 향으로 헹굴까요?';
   const nb=$('noteBase');
   if(item.kind==='photo'){
     nb.textContent = describeTimbre(item.timbre, item.pitch);
@@ -944,55 +945,80 @@ function askNote(item){
   } else {
     nb.textContent='조각이 낸 소리: 당신이 담은 그 자리의 소리 그대로';
   }
+  renderScents(null);
+  $('scentDesc').textContent='향을 고르면 그 결로 소리가 헹궈져요';
   $('noteSheet').style.display='flex';
-  setTimeout(()=>$('noteInput').focus(), 60);
 }
-/* 문장을 프롬프트로 삼아 AI가 이 조각의 음향 레시피를 만든다 */
-let aiBusy=false;
-async function makeAiSound(){
-  if(!notePending || aiBusy) return;
-  const item=notePending;
-  const text=$('noteInput').value.trim();
-  if(!text){ toast('먼저 문장을 적어주세요'); return; }
-  aiBusy=true;
-  const btn=$('noteAi'); btn.disabled=true; btn.textContent='✨ 우려내는 중…';
-  $('noteEcho').textContent='문장을 읽고 소리를 짓는 중이에요…';
-  try{
-    const r = await aiRecipe(item.kind==='photo'?item.img:null, text);
-    item.recipe = r;
-    item.note = text;
-    item.mod = readSentence(text);
-    unlockAudio(); ensureMaster();
-    playFrag({kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer,
-              mod:item.mod, recipe:r,
-              pitch:item.pitch||pitchOfTimbre(item.timbre), rate:1}, null, 1, 1.3);
-    $('noteEcho').textContent = '✨ ' + (r.why||'문장대로 소리를 지었어요');
-    renderChips(item.mod);
-  }catch(err){
-    const msg = String(err.message||err);
-    $('noteEcho').textContent = msg.indexOf('api 401')>=0 ? 'API 키를 확인해주세요 (⚙️)'
-      : msg.indexOf('no key')>=0 ? '⚙️에서 API 키를 넣으면 AI가 문장을 해석해요'
-      : 'AI 연결에 실패했어요 — 기기 안 방식으로 들려드릴게요';
-    notePreview(true);
-  }
-  aiBusy=false; btn.disabled=false; btn.textContent='✨ AI로 만들기';
+/* ---------- 여섯 가지 섬유유연제 향 ----------
+   각 향은 하나의 음향 레시피다. 조각이 낸 음은 그대로 두고, 그 음의 '결'만 헹군다. */
+const SCENTS = [
+  { id:'breeze', emo:'🌬', name:'산들바람', desc:'가볍게 흔들리며 멀리 퍼져요',
+    recipe:{ voice:'breath',
+      partials:[{ratio:1,gain:1},{ratio:2,gain:0.5},{ratio:3.01,gain:0.24}],
+      envelope:{attack:0.25,decay:0.4,sustain:0.5,release:1.6},
+      filter:{type:'lowpass',cutoff:5200,q:1,sweepTo:2600,sweepTime:1.6},
+      noise:{amount:0.22,bright:0.85,burst:false},
+      vibrato:{rate:5.5,depth:0.012}, tremolo:{rate:4.5,depth:0.5},
+      pitchOffset:2, glideSteps:0, hits:1, hitSpacing:1, space:0.78, duration:2.0 } },
+
+  { id:'sun', emo:'☀️', name:'햇살 이불', desc:'따뜻하고 넓게 부풀어요',
+    recipe:{ voice:'choir',
+      partials:[{ratio:1,gain:1},{ratio:2,gain:0.45},{ratio:3,gain:0.2},{ratio:4,gain:0.1}],
+      envelope:{attack:0.35,decay:0.6,sustain:0.7,release:2.2},
+      filter:{type:'lowpass',cutoff:1400,q:0.8,sweepTo:1100,sweepTime:1.8},
+      noise:{amount:0.05,bright:0.3,burst:false},
+      vibrato:{rate:4,depth:0.006}, tremolo:{rate:2,depth:0.15},
+      pitchOffset:0, glideSteps:0, hits:1, hitSpacing:1, space:0.6, duration:2.6 } },
+
+  { id:'rain', emo:'🌦', name:'비 갠 아침', desc:'맑은 물방울처럼 또렷하게 떨어져요',
+    recipe:{ voice:'bell',
+      partials:[{ratio:1,gain:1},{ratio:2.76,gain:0.5},{ratio:5.4,gain:0.22}],
+      envelope:{attack:0.004,decay:0.18,sustain:0.06,release:1.2},
+      filter:{type:'bandpass',cutoff:2600,q:3,sweepTo:3200,sweepTime:0.5},
+      noise:{amount:0.12,bright:0.9,burst:true},
+      vibrato:{rate:0,depth:0}, tremolo:{rate:0,depth:0},
+      pitchOffset:3, glideSteps:0, hits:3, hitSpacing:1, space:0.55, duration:0.9 } },
+
+  { id:'lavender', emo:'🌙', name:'라벤더 밤', desc:'낮게 가라앉아 오래 잠겨요',
+    recipe:{ voice:'drone',
+      partials:[{ratio:0.5,gain:0.7},{ratio:1,gain:1},{ratio:1.5,gain:0.3}],
+      envelope:{attack:0.6,decay:1.2,sustain:0.6,release:2.8},
+      filter:{type:'lowpass',cutoff:700,q:1.2,sweepTo:320,sweepTime:2.6},
+      noise:{amount:0.06,bright:0.15,burst:false},
+      vibrato:{rate:3,depth:0.004}, tremolo:{rate:1.2,depth:0.2},
+      pitchOffset:-2, glideSteps:-2, hits:1, hitSpacing:1, space:0.92, duration:3.0 } },
+
+  { id:'wood', emo:'🪵', name:'오래된 나무장', desc:'마르고 둔탁하게 툭 떨어져요',
+    recipe:{ voice:'wood',
+      partials:[{ratio:1,gain:1},{ratio:1.9,gain:0.35},{ratio:3.4,gain:0.15}],
+      envelope:{attack:0.006,decay:0.28,sustain:0.08,release:0.6},
+      filter:{type:'lowpass',cutoff:1100,q:2.2,sweepTo:520,sweepTime:0.5},
+      noise:{amount:0.3,bright:0.25,burst:true},
+      vibrato:{rate:0,depth:0}, tremolo:{rate:0,depth:0},
+      pitchOffset:-1, glideSteps:0, hits:2, hitSpacing:0.5, space:0.28, duration:0.8 } },
+
+  { id:'lemon', emo:'🍋', name:'레몬 비누', desc:'톡 쏘며 반짝반짝 튀어요',
+    recipe:{ voice:'metal',
+      partials:[{ratio:1,gain:1},{ratio:3.1,gain:0.6},{ratio:6.3,gain:0.35},{ratio:9.2,gain:0.18}],
+      envelope:{attack:0.003,decay:0.3,sustain:0.1,release:1.5},
+      filter:{type:'bandpass',cutoff:3400,q:5,sweepTo:5200,sweepTime:0.8},
+      noise:{amount:0.25,bright:0.95,burst:true},
+      vibrato:{rate:7,depth:0.02}, tremolo:{rate:11,depth:0.4},
+      pitchOffset:4, glideSteps:2, hits:4, hitSpacing:0.5, space:0.5, duration:1.1 } },
+];
+function scentById(id){ return SCENTS.find(x=>x.id===id) || null; }
+function renderScents(sel){
+  const box=$('scentGrid'); box.innerHTML='';
+  SCENTS.forEach(sc=>{
+    const b=document.createElement('button');
+    b.className='scent'+(sel===sc.id?' on':'');
+    b.dataset.scent=sc.id;
+    b.innerHTML='<span class="emo">'+sc.emo+'</span><span class="nm">'+sc.name+'</span>';
+    box.appendChild(b);
+  });
 }
 
-let noteTypeTimer=null;
-$('noteInput').addEventListener('input', e=>{
-  const m=readSentence(e.target.value);
-  if(notePending) notePending.recipe=null;
-  renderChips(m);
-  $('noteEcho').textContent = e.target.value.trim()
-    ? '적는 대로 소리가 바뀌어요 — 잠시 멈추면 들려드릴게요'
-    : '문장을 적으면 소리가 그쪽으로 기울어요';
-  clearTimeout(noteTypeTimer);
-  if(e.target.value.trim()){
-    noteTypeTimer=setTimeout(()=>{
-      if(notePending && $('noteSheet').style.display==='flex') notePreview(true);
-    }, 800);
-  }
-});
+
 /* 이미지가 만든 기본 소리를 사람 말로 */
 function describeTimbre(tb, pitch){
   if(!tb) return '조각의 소리를 읽는 중…';
@@ -1019,45 +1045,54 @@ function noteNameOf(freq){
   return reg + NOTE_NAMES[idx%5];
 }
 
-function notePreview(useText){
+function notePreview(useScent){
   if(!notePending) return;
   const item=notePending;
-  const m = useText ? readSentence($('noteInput').value) : readSentence('');
-  const ac=unlockAudio(); ensureMaster();
+  unlockAudio(); ensureMaster();
   if(!audioCheck()) return;
-  const dummy = {
-    kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer, mod:m,
-    pitch: item.pitch || pitchOfTimbre(item.timbre),   // 조각이 가진 음
-    rate: 1,
-  };
-  playFrag(dummy, null, 1, 1.35);
+  const sc = useScent ? scentById(item.scent) : null;
+  playFrag({
+    kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer,
+    mod:readSentence(''), recipe: sc ? sc.recipe : null,
+    pitch: item.pitch || pitchOfTimbre(item.timbre), rate:1,
+  }, null, 1, 1.35);
 }
-function closeNote(withText){
+
+function closeNote(withScent){
   const item=notePending; notePending=null;
   $('noteSheet').style.display='none';
   if(!item) return;
-  const txt = withText ? $('noteInput').value.trim() : '';
-  item.note = txt;
-  item.mod  = readSentence(txt);
-  if(txt && AI_KEY.has() && !item.recipe){
-    aiRecipe(item.kind==='photo'?item.img:null, txt)
-      .then(r=>{ item.recipe=r; updateBasket(); })
-      .catch(()=>{});
-  }
+  const sc = withScent ? scentById(item.scent) : null;
+  item.note   = sc ? sc.name : '';
+  item.recipe = sc ? sc.recipe : null;
+  item.mod    = readSentence('');
   basketAdd(item);
 }
+
 $('noteSheet').addEventListener('pointerdown', e=>{
+  const sc=e.target.closest('.scent');
+  if(sc){
+    e.preventDefault(); e.stopPropagation();
+    if(!notePending) return;
+    notePending.scent = sc.dataset.scent;
+    renderScents(notePending.scent);
+    const info=scentById(notePending.scent);
+    $('scentDesc').textContent = info ? info.emo+' '+info.name+' — '+info.desc : '';
+    notePreview(true);
+    return;
+  }
   const b=e.target.closest('button');
   if(!b) return;
   e.preventDefault(); e.stopPropagation();
   b.classList.add('pressed'); setTimeout(()=>b.classList.remove('pressed'),180);
-  if(b.id==='noteOk') closeNote(true);
+  if(b.id==='noteOk'){
+    if(!notePending || !notePending.scent){ toast('향을 하나 골라주세요 — 그냥 담으려면 [향 없이 담기]'); return; }
+    closeNote(true);
+  }
   else if(b.id==='noteSkip') closeNote(false);
   else if(b.id==='notePlayBase') notePreview(false);
-  else if(b.id==='notePlayMod'){ if(AI_KEY.has() && !notePending.recipe) makeAiSound(); else notePreview(true); }
-  else if(b.id==='noteAi') makeAiSound();
 }, true);
-$('noteInput').addEventListener('keydown', e=>{ if(e.key==='Enter') closeNote(true); });
+
 
 /* 채집 → 빨래바구니 (걸기는 줄 앞에서) */
 function addPhotoFrag(imgSrc, isCut){
