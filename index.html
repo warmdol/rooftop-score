@@ -18,6 +18,7 @@
   #stage { position:fixed; inset:0; overflow:hidden; touch-action:none; }
   #bgImg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; user-select:none; pointer-events:none; }
   #bgVideo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
+  #arLayer { position:absolute; inset:0; will-change:transform; }
   #ropeCanvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 
   /* ---------- fragments ---------- */
@@ -103,8 +104,10 @@
 <div id="stage">
   <video id="bgVideo" autoplay playsinline muted style="display:none"></video>
   <img id="bgImg" alt="" style="display:none">
-  <canvas id="ropeCanvas"></canvas>
-  <div id="playhead"></div>
+  <div id="arLayer">
+    <canvas id="ropeCanvas"></canvas>
+    <div id="playhead"></div>
+  </div>
 </div>
 
 <div id="topbar" style="display:none">
@@ -162,7 +165,39 @@
    ========================================================= */
 
 const $ = id => document.getElementById(id);
-const stage = $('stage'), ropeCanvas = $('ropeCanvas'), ctx = ropeCanvas.getContext('2d');
+const stage = $('stage'), arLayer = $('arLayer'), ropeCanvas = $('ropeCanvas'), ctx = ropeCanvas.getContext('2d');
+
+/* ---------- 자이로 정합 (LIVE 모드) ----------
+   보정 시점의 기기 방향을 기준으로, 팬/틸트한 만큼 오버레이를 반대로 이동 */
+const gyro = { ref:null, cur:null, dx:0, dy:0 };
+window.addEventListener('deviceorientation', e=>{
+  if(e.alpha==null) return;
+  gyro.cur = { a:e.alpha, b:e.beta };
+});
+function wrapDeg(d){ while(d>180)d-=360; while(d<-180)d+=360; return d; }
+const FOV_X = 52, FOV_Y = 66; // 대략적 카메라 화각(도)
+function gyroApply(){
+  if(state.mode==='live' && gyro.ref && gyro.cur){
+    const {w,h}=px();
+    const tx = wrapDeg(gyro.cur.a - gyro.ref.a) * (w/FOV_X);
+    const ty = (gyro.cur.b - gyro.ref.b) * (h/FOV_Y);
+    gyro.dx += (tx - gyro.dx)*0.35;
+    gyro.dy += (ty - gyro.dy)*0.35;
+  } else { gyro.dx += (0-gyro.dx)*0.35; gyro.dy += (0-gyro.dy)*0.35; }
+  arLayer.style.transform = `translate(${gyro.dx.toFixed(1)}px, ${gyro.dy.toFixed(1)}px)`;
+}
+async function askGyroPermission(){
+  try{
+    if(window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission){
+      await DeviceOrientationEvent.requestPermission();
+    }
+  }catch(e){ /* 거부 시 정합 없이 진행 */ }
+}
+/* 화면 좌표 → AR 레이어 좌표 (오버레이 이동분 보정) */
+function arPt(clientX, clientY){
+  const r=stage.getBoundingClientRect();
+  return { x: clientX - r.left - gyro.dx, y: clientY - r.top - gyro.dy };
+}
 
 const state = {
   mode: null,            // 'live' | 'photo'
@@ -237,6 +272,7 @@ function finishTrace(){
   }
   const {w:W,h:H}=px();
   state.curvePts = out.map(p=>({fx:p.x/W, fy:p.y/H}));
+  gyro.ref = gyro.cur ? {...gyro.cur} : null;   // 이 방향을 정합 기준으로
   state.calibrating=false; hint('');
   toast('줄이 악보가 되었습니다. 이제 채집해서 널어보세요.');
   repositionAll();
@@ -284,7 +320,7 @@ function makeFragEl(cls){
   el.style.animationDelay=(-Math.random()*3)+'s';
   const peg=document.createElement('div'); peg.className='peg'; el.appendChild(peg);
   const del=document.createElement('button'); del.className='del'; del.textContent='×'; el.appendChild(del);
-  stage.appendChild(el);
+  arLayer.appendChild(el);
   return el;
 }
 function positionFrag(f){
@@ -297,7 +333,8 @@ function repositionAll(){ state.frags.forEach(positionFrag); }
 function addPhotoFrag(imgSrc, isCut){
   const el=makeFragEl(isCut?'cutout':'polaroid');
   const img=document.createElement('img'); img.src=imgSrc; el.insertBefore(img, el.querySelector('.del'));
-  const f={id:++fragSeq, kind:'photo', t:null, el, img:imgSrc};
+  const f={id:++fragSeq, kind:'photo', t:null, el, img:imgSrc, timbre:null};
+  analyzeImageTimbre(imgSrc).then(tb=>{ f.timbre=tb; });   // 이미지에서 음색 추출
   bindFrag(f);
   startPlacing(f, '줄에서 이 조각을 널 자리를 탭하세요');
 }
@@ -360,8 +397,7 @@ function bindFrag(f){
 
 /* ---------- 스테이지 탭: 보정 & 배치 ---------- */
 stage.addEventListener('pointerdown', e=>{
-  const r=stage.getBoundingClientRect();
-  const x=e.clientX-r.left, y=e.clientY-r.top;
+  const {x,y}=arPt(e.clientX, e.clientY);
 
   if(state.calibrating){
     trace.active=true; trace.pts=[{x,y}];
@@ -379,8 +415,7 @@ stage.addEventListener('pointerdown', e=>{
 });
 stage.addEventListener('pointermove', e=>{
   if(!trace.active) return;
-  const r=stage.getBoundingClientRect();
-  const x=e.clientX-r.left, y=e.clientY-r.top;
+  const {x,y}=arPt(e.clientX, e.clientY);
   const last=trace.pts[trace.pts.length-1];
   if(Math.hypot(x-last.x,y-last.y)>3) trace.pts.push({x,y});
 });
@@ -389,11 +424,94 @@ stage.addEventListener('pointercancel', ()=>{ trace.active=false; trace.pts=[]; 
 
 function previewFrag(f){
   ensureAudio();
-  if(f.kind==='photo') playTone(pitchAt(f.t), 0.7);
+  if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 0.8);
   else playBuffer(f.buffer, rateAt(f.t), 1.0);
   ring(f, 900);
 }
 function ring(f, ms){ f.el.classList.add('ringing'); setTimeout(()=>f.el.classList.remove('ringing'), ms); }
+
+/* ---------- 이미지 → 음색 분석 ----------
+   사진의 밝기·채도·색상·질감을 읽어 그 사진만의 음색 파라미터를 만든다.
+   음높이는 줄(높이)이 정하고, 음색은 이미지가 정한다. */
+function analyzeImageTimbre(src){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      const S=48, c=document.createElement('canvas'); c.width=c.height=S;
+      const g=c.getContext('2d'); g.drawImage(img,0,0,S,S);
+      let d;
+      try{ d=g.getImageData(0,0,S,S).data; }catch(e){ res(null); return; }
+      let sumL=0,sumSat=0,hux=0,huy=0,tex=0,n=0;
+      const lum=[];
+      for(let i=0;i<d.length;i+=4){
+        const r=d[i]/255,gr=d[i+1]/255,b=d[i+2]/255;
+        if(d[i+3]<32){ lum.push(-1); continue; }   // 투명(컷아웃 바깥) 무시
+        const mx=Math.max(r,gr,b), mn=Math.min(r,gr,b), L=(mx+mn)/2;
+        lum.push(L); sumL+=L; n++;
+        const sat=mx===0?0:(mx-mn)/mx; sumSat+=sat;
+        // 색상(hue) 벡터 평균
+        let hdeg=0;
+        if(mx!==mn){
+          if(mx===r) hdeg=60*(((gr-b)/(mx-mn))%6);
+          else if(mx===gr) hdeg=60*((b-r)/(mx-mn)+2);
+          else hdeg=60*((r-gr)/(mx-mn)+4);
+        }
+        const hr=hdeg*Math.PI/180;
+        hux+=Math.cos(hr)*sat; huy+=Math.sin(hr)*sat;
+      }
+      if(!n){ res(null); return; }
+      for(let y=0;y<S-1;y++) for(let x=0;x<S-1;x++){
+        const i=y*S+x, a=lum[i];
+        if(a<0) continue;
+        const r1=lum[i+1], r2=lum[i+S];
+        if(r1>=0) tex+=Math.abs(a-r1);
+        if(r2>=0) tex+=Math.abs(a-r2);
+      }
+      const hue=((Math.atan2(huy,hux)*180/Math.PI)+360)%360;
+      res({
+        bright: sumL/n,                       // 0..1 밝기 → 필터 열림
+        sat: sumSat/n,                        // 0..1 채도 → 배음/디튠
+        hue,                                  // 0..360 → 파형 성격
+        tex: Math.min(1, tex/n*6),            // 0..1 질감 → 노이즈·떨림
+      });
+    };
+    img.onerror=()=>res(null);
+    img.src=src;
+  });
+}
+function playImageTone(tb, freq, dur){
+  if(!tb) return playTone(freq, dur);
+  const ac=ensureAudio(), t0=ac.currentTime;
+  const out=ac.createGain(); out.gain.value=1; out.connect(ac.destination);
+  // 파형: 색상으로 결정 (난색=거칠게, 한색=둥글게)
+  const wave = tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine');
+  const flt=ac.createBiquadFilter(); flt.type='lowpass';
+  flt.frequency.value = 500 + tb.bright*4200;          // 밝을수록 열린 소리
+  flt.connect(out);
+  const g=ac.createGain(); g.connect(flt);
+  g.gain.setValueAtTime(0,t0);
+  g.gain.linearRampToValueAtTime(0.42,t0+0.02);
+  g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  const o1=ac.createOscillator(); o1.type=wave; o1.frequency.value=freq; o1.connect(g);
+  const o2=ac.createOscillator(); o2.type=wave; o2.frequency.value=freq;
+  o2.detune.value = 4 + tb.sat*22;                      // 채도 → 디튠 두께
+  const g2=ac.createGain(); g2.gain.value=0.5; o2.connect(g2); g2.connect(g);
+  // 질감 → 숨소리(노이즈)
+  if(tb.tex>0.06){
+    const len=ac.sampleRate*dur, nb=ac.createBuffer(1,len,ac.sampleRate), nd=nb.getChannelData(0);
+    for(let i=0;i<len;i++) nd[i]=(Math.random()*2-1)*Math.exp(-i/len*4);
+    const ns=ac.createBufferSource(); ns.buffer=nb;
+    const ng=ac.createGain(); ng.gain.value=tb.tex*0.16;
+    const nf=ac.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=freq*2.5;
+    ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t0);
+  }
+  // 질감 → 미세한 떨림
+  const lfo=ac.createOscillator(), lg=ac.createGain();
+  lfo.frequency.value=3+tb.tex*8; lg.gain.value=freq*0.006*(0.4+tb.tex);
+  lfo.connect(lg); lg.connect(o1.frequency);
+  o1.start(t0); o2.start(t0); lfo.start(t0);
+  const tEnd=t0+dur+0.15; o1.stop(tEnd); o2.stop(tEnd); lfo.stop(tEnd);
+}
 
 /* ---------- 사운드 ---------- */
 function playTone(freq, dur){
@@ -441,7 +559,7 @@ function play(){
     state.frags.forEach(f=>{
       if(!played.has(f.id) && f.t<=t){
         played.add(f.id);
-        if(f.kind==='photo') playTone(pitchAt(f.t), 1.1);
+        if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 1.3);
         else playBuffer(f.buffer, rateAt(f.t), 1.0);
         ring(f, 1200);
       }
@@ -656,7 +774,7 @@ $('btnDemo').addEventListener('click', ()=>{
 
 /* ---------- 보정 ---------- */
 function startCalibration(){
-  state.curvePts=null; state.calibrating=true;
+  state.curvePts=null; state.calibrating=true; gyro.ref=null;
   drawRope();
   hint('손가락으로 실제 줄을 왼쪽 끝에서 오른쪽 끝까지 따라 그으세요');
 }
@@ -672,6 +790,7 @@ function enterStage(modeLabel){
 }
 $('setupLive').addEventListener('click', async ()=>{
   ensureAudio();
+  await askGyroPermission();
   try{
     const ms=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
     const v=$('bgVideo'); v.srcObject=ms; v.style.display='block';
@@ -705,7 +824,7 @@ $('setupDemo').addEventListener('click', ()=>{
 
 /* ---------- 리사이즈 ---------- */
 window.addEventListener('resize', ()=>{ drawRope(); repositionAll(); });
-(function loop(){ drawRope(); requestAnimationFrame(loop); })();
+(function loop(){ drawRope(); gyroApply(); requestAnimationFrame(loop); })();
 </script>
 </body>
 </html>
