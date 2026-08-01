@@ -201,7 +201,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v15</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v17</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -787,7 +787,12 @@ function waveForVoice(v){
   return {bell:'sine', string:'sawtooth', breath:'sine', metal:'square', wood:'triangle',
           water:'sine', drone:'sawtooth', pluck:'triangle', choir:'sine'}[v] || 'triangle';
 }
-function playRecipe(r, baseFreq, at, dry, gainMul){
+function playRecipe(r, baseFreq, at, dry, gainMul, tb){
+  // 이미지에서 뽑은 원본 성질이 주인공, 향은 그 위에 얇게 얹는다
+  const imgB = tb ? tb.bright : 0.5;   // 밝기
+  const imgS = tb ? tb.sat    : 0.3;   // 채도
+  const imgT = tb ? tb.tex    : 0.25;  // 질감
+  const imgH = tb ? tb.hue    : 200;   // 색상
   const ac=ensureAudio(), t0=(at!=null?at:ac.currentTime);
   dry = dry==null?1:dry;
   const freq = shiftPitch(baseFreq, clamp(Math.round(r.pitchOffset||0), -7, 7))
@@ -800,12 +805,13 @@ function playRecipe(r, baseFreq, at, dry, gainMul){
   const flt=ac.createBiquadFilter();
   const ft=(r.filter&&r.filter.type)||'lowpass';
   flt.type=['lowpass','highpass','bandpass'].indexOf(ft)>=0?ft:'lowpass';
-  const c0=clamp(r.filter&&r.filter.cutoff, 120, 16000)*(0.35+0.65*dry);
+  const imgOpen = 0.55 + 1.15*imgB;                       // 밝은 조각일수록 활짝
+  const c0=clamp((r.filter&&r.filter.cutoff)*imgOpen, 140, 16000);
   flt.frequency.setValueAtTime(c0, t0);
-  const cTo=clamp(r.filter&&r.filter.sweepTo, 120, 16000)*(0.35+0.65*dry);
+  const cTo=clamp((r.filter&&r.filter.sweepTo)*imgOpen, 140, 16000);
   if(Math.abs(cTo-c0)>40)
     flt.frequency.exponentialRampToValueAtTime(cTo, t0+clamp(r.filter&&r.filter.sweepTime, 0.05, dur));
-  flt.Q.value=clamp(r.filter&&r.filter.q, 0.1, 18);
+  flt.Q.value=clamp((r.filter&&r.filter.q)*0.75, 0.1, 8);   // 필터는 얕게만
   // 드라이브 — 파형을 찌그러뜨려 거칠게
   if(clamp(r.drive,0,1)>0.05){
     const ws=ac.createWaveShaper();
@@ -828,7 +834,8 @@ function playRecipe(r, baseFreq, at, dry, gainMul){
   g.gain.exponentialRampToValueAtTime(0.0001, t0+dur+rel);
 
   const parts=(Array.isArray(r.partials)&&r.partials.length?r.partials:[{ratio:1,gain:1}]).slice(0,6);
-  const wave=waveForVoice(r.voice);
+  const imgWave = (imgH<70||imgH>320) ? 'sawtooth' : (imgH<180 ? 'triangle' : 'sine');
+  const wave = (r.voice==='metal'||r.voice==='string') ? waveForVoice(r.voice) : imgWave;
   const glide=clamp(Math.round(r.glideSteps||0), -6, 6);
   const target=glide? shiftPitch(freq, glide) : null;
   const oscs=[];
@@ -837,7 +844,8 @@ function playRecipe(r, baseFreq, at, dry, gainMul){
     const f=freq*clamp(pp.ratio, 0.25, 12);
     o.frequency.setValueAtTime(f, t0);
     if(target) o.frequency.exponentialRampToValueAtTime(f*(target/freq), t0+dur*0.85);
-    const pg=ac.createGain(); pg.gain.value=clamp(pp.gain,0,1)/Math.sqrt(parts.length);
+    const upper = (pp.ratio||1) > 1.05 ? (0.55 + 0.9*imgS) : 1;   // 쨍한 색일수록 배음이 살아난다
+    const pg=ac.createGain(); pg.gain.value=clamp(pp.gain,0,1)*upper/Math.sqrt(parts.length);
     o.connect(pg); pg.connect(g);
     o.start(t0); o.stop(t0+dur+rel+0.2);
     oscs.push(o);
@@ -858,14 +866,15 @@ function playRecipe(r, baseFreq, at, dry, gainMul){
     lo.start(t0); lo.stop(t0+dur+rel);
   }
   const nz=r.noise||{};
-  if(clamp(nz.amount,0,1)>0.02){
+  const nzAmt = clamp(imgT*0.75 + clamp(nz.amount,0,1)*0.5, 0, 1);
+  if(nzAmt>0.02){
     const len=Math.floor(ac.sampleRate*(nz.burst?Math.min(0.25,dur):dur));
     const nb=ac.createBuffer(1,Math.max(64,len),ac.sampleRate), nd=nb.getChannelData(0);
     for(let i=0;i<nd.length;i++) nd[i]=(Math.random()*2-1)*Math.exp(-i/nd.length*(nz.burst?7:2.5));
     const ns=ac.createBufferSource(); ns.buffer=nb;
     const nf=ac.createBiquadFilter(); nf.type='bandpass';
-    nf.frequency.value=clamp(300+clamp(nz.bright,0,1)*6000, 200, 12000); nf.Q.value=0.8;
-    const ng=ac.createGain(); ng.gain.value=clamp(nz.amount,0,1)*0.3;
+    nf.frequency.value=clamp(300+(clamp(nz.bright,0,1)*0.5+imgB*0.5)*6000, 200, 12000); nf.Q.value=0.8;
+    const ng=ac.createGain(); ng.gain.value=nzAmt*0.3;
     ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t0);
   }
 }
@@ -967,7 +976,7 @@ const SCENTS = [
     recipe:{ voice:'water', octave:1,
       partials:[{ratio:1,gain:1},{ratio:2,gain:0.22},{ratio:3,gain:0.08}],
       envelope:{attack:1.2,decay:1.5,sustain:0.85,release:3.0},
-      filter:{type:'lowpass',cutoff:900,q:0.7,sweepTo:480,sweepTime:3.0},
+      filter:{type:'lowpass',cutoff:1800,q:0.7,sweepTo:1000,sweepTime:3.0},
       noise:{amount:0.02,bright:0.2,burst:false},
       vibrato:{rate:2,depth:0.004}, tremolo:{rate:0.8,depth:0.14},
       pitchOffset:-1, glideSteps:0, hits:1, hitSpacing:1, space:0.95, duration:3.6 } },
@@ -976,7 +985,7 @@ const SCENTS = [
     recipe:{ voice:'string', octave:1, drive:0.85,
       partials:[{ratio:1,gain:1},{ratio:1.5,gain:0.7},{ratio:2.33,gain:0.6},{ratio:3.7,gain:0.4}],
       envelope:{attack:0.002,decay:0.5,sustain:0.4,release:0.7},
-      filter:{type:'bandpass',cutoff:1200,q:1.2,sweepTo:650,sweepTime:1.2},
+      filter:{type:'lowpass',cutoff:2600,q:0.9,sweepTo:1500,sweepTime:1.2},
       noise:{amount:0.6,bright:0.5,burst:false},
       vibrato:{rate:0,depth:0}, tremolo:{rate:14,depth:0.35},
       pitchOffset:0, glideSteps:0, hits:2, hitSpacing:0.5, space:0.3, duration:1.5 } },
@@ -985,7 +994,7 @@ const SCENTS = [
     recipe:{ voice:'wood', octave:1, drive:0.35,
       partials:[{ratio:1,gain:0.7},{ratio:2,gain:0.22},{ratio:2.9,gain:0.1}],
       envelope:{attack:0.05,decay:0.6,sustain:0.5,release:1.0},
-      filter:{type:'bandpass',cutoff:850,q:4.5,sweepTo:950,sweepTime:2.0},
+      filter:{type:'bandpass',cutoff:1300,q:1.9,sweepTo:1450,sweepTime:2.0},
       noise:{amount:0.8,bright:0.32,burst:false},
       vibrato:{rate:0.8,depth:0.022}, tremolo:{rate:5,depth:0.28},
       pitchOffset:0, glideSteps:0, hits:1, hitSpacing:1, space:0.45, duration:2.4 } },
@@ -994,7 +1003,7 @@ const SCENTS = [
     recipe:{ voice:'bell', octave:1,
       partials:[{ratio:1,gain:1},{ratio:3.2,gain:0.4}],
       envelope:{attack:0.002,decay:0.07,sustain:0.02,release:0.14},
-      filter:{type:'bandpass',cutoff:3000,q:4,sweepTo:5200,sweepTime:0.1},
+      filter:{type:'bandpass',cutoff:3600,q:1.6,sweepTo:5200,sweepTime:0.1},
       noise:{amount:0.18,bright:0.9,burst:true},
       vibrato:{rate:0,depth:0}, tremolo:{rate:0,depth:0},
       pitchOffset:3, glideSteps:1, hits:8, hitSpacing:0.25, space:0.4, duration:0.22 } },
@@ -1012,7 +1021,7 @@ const SCENTS = [
     recipe:{ voice:'drone', octave:0.5,
       partials:[{ratio:0.5,gain:1},{ratio:1,gain:0.95},{ratio:1.5,gain:0.12},{ratio:2,gain:0.06}],
       envelope:{attack:0.7,decay:1.6,sustain:0.8,release:3.0},
-      filter:{type:'lowpass',cutoff:250,q:0.7,sweepTo:130,sweepTime:3.2},
+      filter:{type:'lowpass',cutoff:420,q:0.7,sweepTo:260,sweepTime:3.2},
       noise:{amount:0.05,bright:0.04,burst:false},
       vibrato:{rate:1.1,depth:0.005}, tremolo:{rate:0.7,depth:0.22},
       pitchOffset:-4, glideSteps:-1, hits:1, hitSpacing:1, space:0.9, duration:4.0 } },
@@ -1297,7 +1306,7 @@ function playFrag(f, at, dry, baseDur){
     const hits=Math.max(1, Math.min(9, Math.round(f.recipe.hits||1)));
     const sp=Math.max(0.25, Math.min(4, f.recipe.hitSpacing||1));
     const base=(f.pitch!=null)?f.pitch:(ready()&&f.t!=null?pitchAt(f.t):BASE_FREQ*Math.pow(2,PENTA[4]/12));
-    for(let i=0;i<hits;i++) playRecipe(f.recipe, base, t0+i*GRID*sp, dry, 1/(1+i*0.7));
+    for(let i=0;i<hits;i++) playRecipe(f.recipe, base, t0+i*GRID*sp, dry, 1/(1+i*0.7), f.timbre);
     return;
   }
   const n = Math.max(1, Math.min(3, m.repeats||1));
@@ -1374,7 +1383,7 @@ function playImageTone(tb, freq, dur, dry, at, mod, gainMul){
   // 파형: 색상으로 결정 (난색=거칠게, 한색=둥글게)
   const wave = m.wave || (tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine'));
   const flt=ac.createBiquadFilter(); flt.type='lowpass';
-  flt.frequency.value = (500 + tb.bright*4200) * (0.22+0.78*dry) * (m.filtMul||1); // 젖은 소리는 먹먹하게
+  flt.frequency.value = (500 + tb.bright*4200) * (0.8+0.2*dry) * (m.filtMul||1); // 젖은 소리는 먹먹하게
   flt.connect(out);
   const g=ac.createGain(); g.connect(flt);
   const atk = (m.attack==null) ? 0.02 : m.attack;
@@ -1444,7 +1453,7 @@ function ensureMaster(){
   inBus.connect(comp); comp.connect(ac.destination);
   const verb = ac.createConvolver();
   verb.buffer = makeImpulse(ac, 2.4, 2.6);
-  const wet = ac.createGain(); wet.gain.value = 0.5;
+  const wet = ac.createGain(); wet.gain.value = 0.32;
   verb.connect(wet); wet.connect(inBus);
   master = { in: inBus, verb };
   return master;
@@ -1516,7 +1525,7 @@ function playBuffer(buffer, rate, gain, dry, at, mod){
   const g=ac.createGain(); g.gain.value=gain??1;
   s.connect(g);
   let tail=g;
-  const cut=(700 + 8000*dry) * (m.filtMul||1);
+  const cut=(2500 + 6200*dry) * (m.filtMul||1);
   if(dry<0.97 || (m.filtMul||1)!==1){
     const f=ac.createBiquadFilter(); f.type='lowpass';
     f.frequency.value = Math.max(300, Math.min(16000, cut));
