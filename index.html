@@ -122,7 +122,7 @@
 
 <div id="setup">
   <h1>옥상 악보</h1>
-  <p>빨랫줄을 화면에 담고 양 끝을 탭하면, 줄이 악보가 됩니다.<br>
+  <p>빨랫줄을 화면에 담고 손가락으로 줄을 따라 그으면, 줄이 악보가 됩니다.<br>
      사진과 소리를 채집해 줄에 널고, 왼쪽부터 연주하세요.</p>
   <button class="primary" id="setupLive">📱 카메라로 줄 비추기 (AR)</button>
   <button id="setupPhoto">🖼 줄 사진으로 시작</button>
@@ -166,8 +166,7 @@ const stage = $('stage'), ropeCanvas = $('ropeCanvas'), ctx = ropeCanvas.getCont
 
 const state = {
   mode: null,            // 'live' | 'photo'
-  anchors: [],           // [{fx,fy} x2] 화면 비율 좌표
-  sag: 0.13,             // 처짐 (스팬 대비)
+  curvePts: null,        // [{fx,fy} x48] 트레이스된 줄 곡선 (화면 비율 좌표)
   frags: [],             // {id, t, kind:'photo'|'sound', el, img?, buffer?}
   placing: null,         // 배치 대기 조각
   calibrating: false,
@@ -186,14 +185,19 @@ function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||windo
   if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
 function px(){ return { w: stage.clientWidth, h: stage.clientHeight }; }
 
-/* ---------- 줄(곡선) ---------- */
-function anchorPx(i){ const {w,h}=px(); const a=state.anchors[i]; return {x:a.fx*w, y:a.fy*h}; }
+/* ---------- 줄(곡선): 손가락 트레이스 기반 ---------- */
+const trace = { active:false, pts:[] };
+
+function ready(){ return !!state.curvePts; }
+function curveScreenPts(){
+  const {w,h}=px();
+  return state.curvePts.map(p=>({x:p.fx*w, y:p.fy*h}));
+}
 function curvePoint(t){
-  const p0=anchorPx(0), p1=anchorPx(1);
-  const dx=p1.x-p0.x, dy=p1.y-p0.y;
-  const span=Math.hypot(dx,dy);
-  const sagPx=state.sag*span;
-  return { x: p0.x+dx*t, y: p0.y+dy*t + sagPx*4*t*(1-t) };
+  const P=curveScreenPts();
+  const f=Math.min(1,Math.max(0,t))*(P.length-1);
+  const i=Math.min(P.length-2, Math.floor(f)), u=f-i;
+  return { x:P[i].x+(P[i+1].x-P[i].x)*u, y:P[i].y+(P[i+1].y-P[i].y)*u };
 }
 function nearestT(x,y){
   let best=0, bd=1e9;
@@ -203,19 +207,58 @@ function nearestT(x,y){
   }
   return {t:best, dist:Math.sqrt(bd)};
 }
+function finishTrace(){
+  const {w}=px();
+  let pts=trace.pts.slice();
+  trace.active=false; trace.pts=[];
+  const xs=pts.map(p=>p.x);
+  if(pts.length<8 || (Math.max(...xs)-Math.min(...xs)) < w*0.3){
+    toast('줄 전체를 왼쪽 끝에서 오른쪽 끝까지 길게 따라 그어주세요');
+    return;
+  }
+  if(pts[0].x > pts[pts.length-1].x) pts.reverse();
+  // 스무딩 (이동평균 2회)
+  for(let pass=0; pass<2; pass++){
+    pts = pts.map((p,i)=>{
+      const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
+      return { x:(a.x+p.x+b.x)/3, y:(a.y+p.y+b.y)/3 };
+    });
+  }
+  // 호 길이 기준 균일 리샘플 (48점)
+  const N=48, seg=[0];
+  for(let i=1;i<pts.length;i++) seg.push(seg[i-1]+Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y));
+  const total=seg[seg.length-1];
+  const out=[];
+  for(let k=0;k<N;k++){
+    const target=total*k/(N-1);
+    let i=1; while(i<seg.length-1 && seg[i]<target) i++;
+    const u=(target-seg[i-1])/Math.max(1e-6,(seg[i]-seg[i-1]));
+    out.push({ x:pts[i-1].x+(pts[i].x-pts[i-1].x)*u, y:pts[i-1].y+(pts[i].y-pts[i-1].y)*u });
+  }
+  const {w:W,h:H}=px();
+  state.curvePts = out.map(p=>({fx:p.x/W, fy:p.y/H}));
+  state.calibrating=false; hint('');
+  toast('줄이 악보가 되었습니다. 이제 채집해서 널어보세요.');
+  repositionAll();
+}
 function drawRope(){
   const {w,h}=px();
   if(ropeCanvas.width!==w||ropeCanvas.height!==h){ ropeCanvas.width=w; ropeCanvas.height=h; }
   ctx.clearRect(0,0,w,h);
-  if(state.anchors.length<2) {
-    // 보정 중 첫 앵커 표시
-    if(state.anchors.length===1){ const p=anchorPx(0); dot(p.x,p.y); }
+  if(trace.active && trace.pts.length>1){
+    ctx.beginPath();
+    ctx.moveTo(trace.pts[0].x, trace.pts[0].y);
+    trace.pts.forEach(p=>ctx.lineTo(p.x,p.y));
+    ctx.strokeStyle='rgba(255,217,122,.9)'; ctx.lineWidth=3; ctx.stroke();
     return;
   }
+  if(!ready()) return;
+  const P=curveScreenPts();
   ctx.beginPath();
-  for(let t=0;t<=1.0001;t+=0.01){ const p=curvePoint(t); t===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y); }
+  ctx.moveTo(P[0].x,P[0].y);
+  P.forEach(p=>ctx.lineTo(p.x,p.y));
   ctx.strokeStyle='rgba(255,217,122,.5)'; ctx.lineWidth=2; ctx.setLineDash([7,7]); ctx.stroke(); ctx.setLineDash([]);
-  dot(anchorPx(0).x, anchorPx(0).y); dot(anchorPx(1).x, anchorPx(1).y);
+  dot(P[0].x,P[0].y); dot(P[P.length-1].x,P[P.length-1].y);
 }
 function dot(x,y){ ctx.beginPath(); ctx.arc(x,y,6,0,7); ctx.fillStyle='#ffd97a'; ctx.fill();
   ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.stroke(); }
@@ -319,19 +362,10 @@ function bindFrag(f){
 stage.addEventListener('pointerdown', e=>{
   const r=stage.getBoundingClientRect();
   const x=e.clientX-r.left, y=e.clientY-r.top;
-  const {w,h}=px();
 
   if(state.calibrating){
-    state.anchors.push({fx:x/w, fy:y/h});
-    if(state.anchors.length===1){ hint('이번엔 줄의 오른쪽 끝을 탭하세요'); }
-    else {
-      // 왼쪽이 항상 t=0이 되도록 정렬
-      if(state.anchors[0].fx > state.anchors[1].fx) state.anchors.reverse();
-      state.calibrating=false; hint('');
-      toast('줄이 악보가 되었습니다. 이제 채집해서 널어보세요.');
-      repositionAll();
-    }
-    drawRope(); return;
+    trace.active=true; trace.pts=[{x,y}];
+    return;
   }
 
   if(state.placing){
@@ -343,6 +377,15 @@ stage.addEventListener('pointerdown', e=>{
     previewFrag(f);
   }
 });
+stage.addEventListener('pointermove', e=>{
+  if(!trace.active) return;
+  const r=stage.getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
+  const last=trace.pts[trace.pts.length-1];
+  if(Math.hypot(x-last.x,y-last.y)>3) trace.pts.push({x,y});
+});
+stage.addEventListener('pointerup', ()=>{ if(trace.active) finishTrace(); });
+stage.addEventListener('pointercancel', ()=>{ trace.active=false; trace.pts=[]; });
 
 function previewFrag(f){
   ensureAudio();
@@ -382,7 +425,7 @@ function playBuffer(buffer, rate, gain){
 /* ---------- 연주 ---------- */
 const PLAY_SECONDS = 16;
 function play(){
-  if(state.anchors.length<2){ toast('먼저 줄을 보정하세요'); return; }
+  if(!ready()){ toast('먼저 줄을 보정하세요'); return; }
   if(!state.frags.length){ toast('널린 조각이 없습니다'); return; }
   if(state.playing) return;
   ensureAudio();
@@ -411,7 +454,7 @@ function play(){
 
 /* ---------- 사진 채집 ---------- */
 $('btnPhoto').addEventListener('click', ()=>{
-  if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
+  if(!ready()) return toast('먼저 줄을 보정하세요');
   if(state.mode==='live' && window._liveVideoReady){ captureFromLive(); }
   else $('fileFrag').click();
 });
@@ -540,7 +583,7 @@ function shrinkImage(file, max){
 /* ---------- 녹음 채집 ---------- */
 let recorder=null, recTimer=null;
 $('btnRec').addEventListener('click', async ()=>{
-  if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
+  if(!ready()) return toast('먼저 줄을 보정하세요');
   ensureAudio();
   try{
     const ms=await navigator.mediaDevices.getUserMedia({audio:true});
@@ -574,7 +617,7 @@ $('recStop').addEventListener('click', stopRec);
 /* ---------- 데모 조각 ---------- */
 let demoN=0;
 $('btnDemo').addEventListener('click', ()=>{
-  if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
+  if(!ready()) return toast('먼저 줄을 보정하세요');
   demoN++;
   if(demoN%2===1){
     // 데모 사진: 불규칙 윤곽으로 오려진 조각
@@ -613,9 +656,9 @@ $('btnDemo').addEventListener('click', ()=>{
 
 /* ---------- 보정 ---------- */
 function startCalibration(){
-  state.anchors=[]; state.calibrating=true;
+  state.curvePts=null; state.calibrating=true;
   drawRope();
-  hint('줄의 왼쪽 끝을 탭하세요');
+  hint('손가락으로 실제 줄을 왼쪽 끝에서 오른쪽 끝까지 따라 그으세요');
 }
 $('btnCal').addEventListener('click', startCalibration);
 
