@@ -92,6 +92,23 @@
   #recSheet button { margin-top:10px; padding:12px 30px; border-radius:14px; border:none;
     background:#e5533d; color:#fff; font-size:15px; font-weight:600; }
 
+  /* ---------- 빨래바구니 ---------- */
+  #basketSheet { position:fixed; left:0; right:0; bottom:0; z-index:52; display:none;
+    background:#15171f; border-radius:20px 20px 0 0; padding:16px 16px 26px; max-height:55vh; overflow-y:auto; }
+  #basketSheet h3 { font-size:14px; margin-bottom:4px; }
+  #basketSheet .note { font-size:11.5px; color:var(--dim); margin-bottom:12px; }
+  #basketGrid { display:flex; flex-wrap:wrap; gap:10px; }
+  .bitem { position:relative; width:84px; height:84px; border-radius:10px; overflow:hidden;
+    background:#232633; border:1px solid rgba(255,255,255,.15);
+    display:flex; align-items:center; justify-content:center; }
+  .bitem img { width:100%; height:100%; object-fit:contain; }
+  .bitem canvas { width:100%; height:60%; }
+  .bitem .tag { position:absolute; bottom:3px; right:5px; font-size:11px; }
+  #btnBasket { position:relative; }
+  #basketBadge { position:absolute; top:-6px; right:-4px; min-width:19px; height:19px; padding:0 5px;
+    border-radius:10px; background:var(--accent); color:#1a1508; font-size:11.5px; font-weight:700;
+    line-height:19px; display:none; }
+
   #toast { position:fixed; bottom:96px; left:50%; transform:translateX(-50%); z-index:60;
     background:rgba(20,22,30,.92); border:1px solid rgba(255,255,255,.18); color:var(--ink);
     padding:9px 16px; border-radius:12px; font-size:12.5px; display:none; max-width:86vw; }
@@ -116,17 +133,24 @@
 <div id="hint" style="display:none"></div>
 
 <div id="toolbar" style="display:none">
-  <button class="tool" id="btnPhoto">📷<br>찍어 널기</button>
-  <button class="tool" id="btnRec">🎙<br>녹음해 널기</button>
+  <button class="tool" id="btnPhoto">📷<br>찍어 담기</button>
+  <button class="tool" id="btnRec">🎙<br>녹음해 담기</button>
+  <button class="tool" id="btnBasket">🧺<br>바구니<span id="basketBadge"></span></button>
   <button class="tool primary" id="btnPlay">▶<br>연주</button>
   <button class="tool" id="btnDemo">✚<br>데모</button>
-  <button class="tool" id="btnCal">↺<br>재보정</button>
+  <button class="tool" id="btnCal">↺<br>줄긋기</button>
+</div>
+
+<div id="basketSheet">
+  <h3>🧺 빨래바구니</h3>
+  <div class="note">조각을 탭하면 널기가 시작됩니다. 줄이 아직 없으면 먼저 눈앞의 줄을 긋게 안내해요.</div>
+  <div id="basketGrid"></div>
 </div>
 
 <div id="setup">
   <h1>옥상 악보</h1>
-  <p>빨랫줄을 화면에 담고 손가락으로 줄을 따라 그으면, 줄이 악보가 됩니다.<br>
-     사진과 소리를 채집해 줄에 널고, 왼쪽부터 연주하세요.</p>
+  <p>옥상을 돌아다니며 사진과 소리를 채집해 바구니에 담고,<br>
+     줄 앞에 돌아와 손가락으로 줄을 따라 그은 뒤 널어 연주하세요.</p>
   <button class="primary" id="setupLive">📱 카메라로 줄 비추기 (AR)</button>
   <button id="setupPhoto">🖼 줄 사진으로 시작</button>
   <button id="setupDemo">✨ 데모 이미지로 시작</button>
@@ -171,19 +195,42 @@ const stage = $('stage'), arLayer = $('arLayer'), ropeCanvas = $('ropeCanvas'), 
    보정 시점의 기기 방향을 기준으로, 팬/틸트한 만큼 오버레이를 반대로 이동 */
 const gyro = { ref:null, cur:null, dx:0, dy:0 };
 window.addEventListener('deviceorientation', e=>{
-  if(e.alpha==null) return;
-  gyro.cur = { a:e.alpha, b:e.beta };
+  if(e.beta==null) return;
+  gyro.cur = { a:e.alpha||0, b:e.beta, g:e.gamma||0 };
 });
-function wrapDeg(d){ while(d>180)d-=360; while(d<-180)d+=360; return d; }
-const FOV_X = 52, FOV_Y = 66; // 대략적 카메라 화각(도)
+/* W3C 기기방향 → 회전행렬 (world←device, R = Rz(α)·Rx(β)·Ry(γ)) */
+function rotM(a,b,g){
+  const r=Math.PI/180, ca=Math.cos(a*r),sa=Math.sin(a*r),cb=Math.cos(b*r),sb=Math.sin(b*r),cg=Math.cos(g*r),sg=Math.sin(g*r);
+  return [
+    [ca*cg - sa*sb*sg, -sa*cb, ca*sg + sa*sb*cg],
+    [sa*cg + ca*sb*sg,  ca*cb, sa*sg - ca*sb*cg],
+    [-cb*sg,            sb,    cb*cg]
+  ];
+}
 function gyroApply(){
+  let tx=0, ty=0;
   if(state.mode==='live' && gyro.ref && gyro.cur){
-    const {w,h}=px();
-    const tx = wrapDeg(gyro.cur.a - gyro.ref.a) * (w/FOV_X);
-    const ty = (gyro.cur.b - gyro.ref.b) * (h/FOV_Y);
-    gyro.dx += (tx - gyro.dx)*0.35;
-    gyro.dy += (ty - gyro.dy)*0.35;
-  } else { gyro.dx += (0-gyro.dx)*0.35; gyro.dy += (0-gyro.dy)*0.35; }
+    const R0=rotM(gyro.ref.a,gyro.ref.b,gyro.ref.g);
+    const R =rotM(gyro.cur.a,gyro.cur.b,gyro.cur.g);
+    // 보정 시점 카메라 전방(-Z_dev)을 월드 좌표로
+    const f0=[-R0[0][2],-R0[1][2],-R0[2][2]];
+    // 현재 기기 좌표계로 재투영 (R^T · f0)
+    const d=[ R[0][0]*f0[0]+R[1][0]*f0[1]+R[2][0]*f0[2],
+              R[0][1]*f0[0]+R[1][1]*f0[1]+R[2][1]*f0[2],
+              R[0][2]*f0[0]+R[1][2]*f0[1]+R[2][2]*f0[2] ];
+    if(d[2] < -0.1){ // 아직 화면 앞쪽에 있을 때만
+      const degX=Math.atan2(d[0],-d[2])*180/Math.PI;
+      const degY=Math.atan2(d[1],-d[2])*180/Math.PI;
+      // 화면 회전(가로/세로) 반영
+      const ang=((screen.orientation&&screen.orientation.angle)??window.orientation)||0;
+      const rr=ang*Math.PI/180, c=Math.cos(rr), s=Math.sin(rr);
+      const sx=degX*c+degY*s, sy=-degX*s+degY*c;
+      const {w,h}=px();
+      const ppd=Math.min(w,h)/50; // 짧은 축 기준 화각 50° 근사
+      tx=sx*ppd; ty=-sy*ppd;
+    }
+  }
+  gyro.dx += (tx-gyro.dx)*0.3; gyro.dy += (ty-gyro.dy)*0.3;
   arLayer.style.transform = `translate(${gyro.dx.toFixed(1)}px, ${gyro.dy.toFixed(1)}px)`;
 }
 async function askGyroPermission(){
@@ -203,6 +250,8 @@ const state = {
   mode: null,            // 'live' | 'photo'
   curvePts: null,        // [{fx,fy} x48] 트레이스된 줄 곡선 (화면 비율 좌표)
   frags: [],             // {id, t, kind:'photo'|'sound', el, img?, buffer?}
+  basket: [],            // 채집됐지만 아직 안 널린 조각들
+  pendingPlace: null,    // 줄긋기 후 이어서 널 조각
   placing: null,         // 배치 대기 조각
   calibrating: false,
   playing: false,
@@ -274,8 +323,13 @@ function finishTrace(){
   state.curvePts = out.map(p=>({fx:p.x/W, fy:p.y/H}));
   gyro.ref = gyro.cur ? {...gyro.cur} : null;   // 이 방향을 정합 기준으로
   state.calibrating=false; hint('');
-  toast('줄이 악보가 되었습니다. 이제 채집해서 널어보세요.');
   repositionAll();
+  if(state.pendingPlace){
+    const it=state.pendingPlace; state.pendingPlace=null;
+    beginPlacing(it);
+  } else {
+    toast('줄이 악보가 되었습니다. 🧺 바구니에서 꺼내 널어보세요.');
+  }
 }
 function drawRope(){
   const {w,h}=px();
@@ -330,23 +384,73 @@ function positionFrag(f){
 }
 function repositionAll(){ state.frags.forEach(positionFrag); }
 
+/* 채집 → 빨래바구니 (걸기는 줄 앞에서) */
 function addPhotoFrag(imgSrc, isCut){
-  const el=makeFragEl(isCut?'cutout':'polaroid');
-  const img=document.createElement('img'); img.src=imgSrc; el.insertBefore(img, el.querySelector('.del'));
-  const f={id:++fragSeq, kind:'photo', t:null, el, img:imgSrc, timbre:null};
-  analyzeImageTimbre(imgSrc).then(tb=>{ f.timbre=tb; });   // 이미지에서 음색 추출
-  bindFrag(f);
-  startPlacing(f, '줄에서 이 조각을 널 자리를 탭하세요');
+  const item={kind:'photo', img:imgSrc, cut:!!isCut, timbre:null};
+  analyzeImageTimbre(imgSrc).then(tb=>{ item.timbre=tb; });
+  basketAdd(item);
 }
 function addSoundFrag(buffer){
-  const el=makeFragEl('ribbon');
-  const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
-  el.insertBefore(cv, el.querySelector('.del'));
-  drawWaveform(cv, buffer);
-  const f={id:++fragSeq, kind:'sound', t:null, el, buffer};
-  bindFrag(f);
-  startPlacing(f, '줄에서 이 소리를 널 자리를 탭하세요');
+  basketAdd({kind:'sound', buffer});
 }
+function basketAdd(item){
+  state.basket.push(item);
+  updateBasket();
+  toast('🧺 빨래바구니에 담았습니다 ('+state.basket.length+')');
+}
+function updateBasket(){
+  const b=$('basketBadge');
+  b.textContent=state.basket.length;
+  b.style.display=state.basket.length?'block':'none';
+  const grid=$('basketGrid'); grid.innerHTML='';
+  state.basket.forEach(item=>{
+    const d=document.createElement('div'); d.className='bitem';
+    if(item.kind==='photo'){
+      const im=document.createElement('img'); im.src=item.img; d.appendChild(im);
+      d.insertAdjacentHTML('beforeend','<span class="tag">📷</span>');
+    } else {
+      const cv=document.createElement('canvas'); cv.width=160; cv.height=50;
+      drawWaveform(cv, item.buffer); d.appendChild(cv);
+      d.insertAdjacentHTML('beforeend','<span class="tag">🎙</span>');
+    }
+    d.addEventListener('click', ()=>placeItem(item));
+    grid.appendChild(d);
+  });
+}
+function placeItem(item){
+  $('basketSheet').style.display='none';
+  if(!ready()){
+    state.pendingPlace=item;
+    startCalibration();
+    toast('먼저 눈앞의 실제 줄을 손가락으로 따라 그어주세요 — 그으면 바로 널기가 이어져요', 3500);
+    return;
+  }
+  beginPlacing(item);
+}
+function beginPlacing(item){
+  let f;
+  if(item.kind==='photo'){
+    const el=makeFragEl(item.cut?'cutout':'polaroid');
+    const img=document.createElement('img'); img.src=item.img; el.insertBefore(img, el.querySelector('.del'));
+    f={id:++fragSeq, kind:'photo', t:null, el, img:item.img, timbre:item.timbre};
+  } else {
+    const el=makeFragEl('ribbon');
+    const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
+    el.insertBefore(cv, el.querySelector('.del'));
+    drawWaveform(cv, item.buffer);
+    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer};
+  }
+  state.basket=state.basket.filter(x=>x!==item); updateBasket();
+  bindFrag(f);
+  startPlacing(f, '줄에서 널 자리를 탭하세요');
+}
+$('btnBasket').addEventListener('click', ()=>{
+  const sh=$('basketSheet');
+  if(sh.style.display==='block'){ sh.style.display='none'; return; }
+  if(!state.basket.length){ toast('바구니가 비었어요 — 📷/🎙로 채집해보세요'); return; }
+  updateBasket();
+  sh.style.display='block';
+});
 function drawWaveform(cv, buffer){
   const c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height);
   const data=buffer.getChannelData(0), step=Math.max(1,Math.floor(data.length/cv.width));
@@ -572,7 +676,6 @@ function play(){
 
 /* ---------- 사진 채집 ---------- */
 $('btnPhoto').addEventListener('click', ()=>{
-  if(!ready()) return toast('먼저 줄을 보정하세요');
   if(state.mode==='live' && window._liveVideoReady){ captureFromLive(); }
   else $('fileFrag').click();
 });
@@ -701,7 +804,6 @@ function shrinkImage(file, max){
 /* ---------- 녹음 채집 ---------- */
 let recorder=null, recTimer=null;
 $('btnRec').addEventListener('click', async ()=>{
-  if(!ready()) return toast('먼저 줄을 보정하세요');
   ensureAudio();
   try{
     const ms=await navigator.mediaDevices.getUserMedia({audio:true});
@@ -735,7 +837,6 @@ $('recStop').addEventListener('click', stopRec);
 /* ---------- 데모 조각 ---------- */
 let demoN=0;
 $('btnDemo').addEventListener('click', ()=>{
-  if(!ready()) return toast('먼저 줄을 보정하세요');
   demoN++;
   if(demoN%2===1){
     // 데모 사진: 불규칙 윤곽으로 오려진 조각
@@ -786,7 +887,7 @@ function enterStage(modeLabel){
   $('topbar').style.display='flex';
   $('toolbar').style.display='flex';
   $('mode-label').textContent=modeLabel;
-  startCalibration();
+  toast('옥상을 돌아다니며 📷/🎙로 채집하세요 — 널 때가 되면 줄 앞에서 ↺ 줄긋기', 4200);
 }
 $('setupLive').addEventListener('click', async ()=>{
   ensureAudio();
