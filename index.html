@@ -174,7 +174,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v8</span>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v9</span>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -199,6 +199,9 @@
      📷 눈에 밟히는 기억은 <b>찍어서</b><br>
      🎙 귀에 들리는 기억은 <b>녹음해서</b><br>
      🧺 바구니에 담아 오세요.</p>
+  <p style="color:var(--accent); font-size:12.5px; margin-top:-4px; max-width:330px; line-height:1.7">
+    ⚠️ 기기의 <b>무음 모드를 끄고 볼륨을 올려주세요</b><br>무음 상태에선 조각의 소리가 들리지 않아요.
+  </p>
   <button id="missionGo">조각을 모으러 가기</button>
 </div>
 
@@ -241,6 +244,7 @@
   </div>
   <input id="noteInput" type="text" maxlength="40" placeholder="예: 누군가가 오래 기다렸던 저녁">
   <div id="noteEcho"></div>
+  <div class="sub" style="font-size:10.5px; opacity:.65">소리가 안 들리면 기기 무음 모드를 확인해주세요</div>
   <div class="row">
     <button id="noteSkip">그냥 담기</button>
     <button id="noteOk" class="primary">적어서 담기</button>
@@ -343,16 +347,34 @@ function ensureAudio(){
   if(audioCtx.state==='suspended') audioCtx.resume();
   return audioCtx;
 }
-/* iOS 잠금 해제: 첫 터치에 무음 버퍼를 한 번 재생해둔다 */
-let audioUnlocked=false;
+/* iOS 오디오 잠금 해제 + 출력 세션 고정
+   ① 무음 버퍼로 AudioContext 깨우기
+   ② 무음 WAV를 HTML audio로 루프 재생 — 일부 기기에서 출력 라우팅을 재생 모드로 고정 */
+let audioUnlocked=false, silentEl=null;
+function silentWavURL(){
+  const sr=8000, n=sr;
+  const buf=new ArrayBuffer(44+n*2), v=new DataView(buf);
+  const wr=(o,str)=>{ for(let i=0;i<str.length;i++) v.setUint8(o+i, str.charCodeAt(i)); };
+  wr(0,'RIFF'); v.setUint32(4, 36+n*2, true); wr(8,'WAVEfmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  wr(36,'data'); v.setUint32(40, n*2, true);
+  return URL.createObjectURL(new Blob([buf], {type:'audio/wav'}));
+}
 function unlockAudio(){
   const ac=ensureAudio();
+  if(ac.state==='suspended') ac.resume();
   if(audioUnlocked) return ac;
   try{
     const b=ac.createBuffer(1,1,22050);
     const s=ac.createBufferSource(); s.buffer=b; s.connect(ac.destination); s.start(0);
-    audioUnlocked=true;
   }catch(e){}
+  try{
+    silentEl=document.createElement('audio');
+    silentEl.src=silentWavURL(); silentEl.loop=true; silentEl.volume=0.001;
+    silentEl.setAttribute('playsinline',''); silentEl.play().catch(()=>{});
+  }catch(e){}
+  audioUnlocked=true;
   return ac;
 }
 document.addEventListener('pointerdown', unlockAudio, {once:true, capture:true});
