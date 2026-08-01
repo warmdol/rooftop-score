@@ -219,7 +219,10 @@
   <div class="msg">담고 싶은 것의 둘레를 손가락으로 따라 그리세요<br><span style="opacity:.65">(마음에 안 들면 그냥 다시 그리면 처음부터예요)</span></div>
   <canvas id="cutCanvas"></canvas>
   <div class="row">
-    <button id="cutRetry">↺ 다시</button>
+    <button id="cutRetake">📷 다시 찍기</button>
+    <button id="cutRetry">↺ 선 지우기</button>
+  </div>
+  <div class="row">
     <button id="cutRect">통째로 담기</button>
     <button id="cutOk" class="primary" disabled>✂ 오려서 담기</button>
   </div>
@@ -457,14 +460,7 @@ function dryness(f){
   if(!f.hungAt) return 0;
   return Math.min(1, (Date.now()-f.hungAt)/DRY_MS);
 }
-setInterval(()=>{
-  state.frags.forEach(f=>{
-    const d=dryness(f);
-    const inner=f.el.querySelector('img,canvas');
-    if(inner) inner.style.filter = d>=1 ? '' :
-      `blur(${((1-d)*2.2).toFixed(2)}px) saturate(${(0.55+0.45*d).toFixed(2)}) brightness(${(0.85+0.15*d).toFixed(2)})`;
-  });
-}, 2000);
+/* 화면은 항상 선명하게 — 마름은 소리에만 반영한다 */
 
 /* ---------- 한 문장 → 소리 변조 ----------
    문장은 임의의 소리를 만들지 않는다. 이미 조율된 음악 안에서
@@ -1110,6 +1106,12 @@ cutCv.addEventListener('pointercancel', ()=>{ cut.drawing=false; drawCutter(); }
 /* 버튼 탭: pointerdown 캡처 위임 — iOS에서 click 합성이 씹혀도 동작 */
 const cutActions = {
   cutRetry(){ cut.pts=[]; cut.drawing=false; $('cutOk').disabled=true; drawCutter(); },
+  cutRetake(){
+    cut.pts=[]; cut.drawing=false;
+    $('cutSheet').style.display='none';
+    if(state.mode==='live' && window._liveVideoReady) captureFromLive();
+    else $('fileFrag').click();
+  },
   cutRect(){
     $('cutSheet').style.display='none';
     addPhotoFrag(cut.img.src, false);
