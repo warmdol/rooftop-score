@@ -174,7 +174,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v10</span>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v11</span>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -242,7 +242,7 @@
     <button id="notePlayBase">▶ 조각의 소리</button>
     <button id="notePlayMod" class="primary">▶ 문장을 얹은 소리</button>
   </div>
-  <input id="noteInput" type="text" maxlength="40" placeholder="예: 누군가가 오래 기다렸던 저녁">
+  <input id="noteInput" type="text" maxlength="40" placeholder="어떤 문장이든 좋아요">
   <div id="noteEcho"></div>
   <div class="sub" style="font-size:10.5px; opacity:.65">소리가 안 들리면 기기 무음 모드를 확인해주세요</div>
   <div class="row">
@@ -514,6 +514,15 @@ function dryness(f){
 /* 화면은 항상 선명하게 — 마름은 소리에만 반영한다 */
 
 /* 조각이 스스로 음높이를 갖는다 — 줄 위치는 '언제'만 정한다 */
+/* 음계를 벗어나지 않고 몇 계단만 옮긴다 */
+function shiftPitch(freq, steps){
+  if(!steps) return freq;
+  const semi = Math.round(12*Math.log2(freq/BASE_FREQ));
+  let idx = 0, best = 1e9;
+  PENTA.forEach((v,i)=>{ const d=Math.abs(v-semi); if(d<best){ best=d; idx=i; } });
+  idx = Math.max(0, Math.min(PENTA.length-1, idx+steps));
+  return BASE_FREQ*Math.pow(2, PENTA[idx]/12);
+}
 function pitchOfTimbre(tb){
   if(!tb) return BASE_FREQ*Math.pow(2, PENTA[4]/12);
   const n = Math.max(0, Math.min(1, tb.bright*0.85 + tb.sat*0.15));
@@ -546,12 +555,64 @@ const LEX = [
   ['wave', 'sine',     ['맑','둥근','부드럽','고요','물','유리알','종']],
   ['trem', 1,    ['흔들','떨','일렁','파도','나부','펄럭','바르르','아른']],
 ];
+/* ---------- 문장의 '말소리' 자체를 읽는다 ----------
+   사전에 없는 문장도 반드시 소리가 달라지도록, 한글의 음운을 직접 분석한다.
+   양성모음(ㅏㅗ)은 밝고 음성모음(ㅓㅜ)은 어둡다는 모음조화, 거센소리/된소리의 거칢,
+   받침의 닫힘, 유음·비음의 부드러움 — 말의 결이 그대로 음의 결이 된다. */
+const CHO_HARSH=[1,4,8,10,13,14,15,16,17];   // ㄲㄸㅃㅆㅉㅊㅋㅌㅍ
+const CHO_SOFT =[2,5,6,11,18];               // ㄴㄹㅁㅇㅎ
+const JUNG_YANG=[0,1,2,3,8,9,10,11,12];      // ㅏㅐㅑㅒㅗㅘㅙㅚㅛ
+const JUNG_EUM =[4,5,6,7,13,14,15,16,17];    // ㅓㅔㅕㅖㅜㅝㅞㅟㅠ
+function speechOf(t){
+  let n=0, bright=0, rough=0, soft=0, batchim=0, firstCho=null, prev=null, echo=0;
+  for(const ch of t){
+    const c=ch.charCodeAt(0);
+    if(c<0xAC00||c>0xD7A3){ prev=null; continue; }
+    const i=c-0xAC00, cho=Math.floor(i/588), jung=Math.floor((i%588)/28), jong=i%28;
+    n++;
+    if(JUNG_YANG.indexOf(jung)>=0) bright++; else if(JUNG_EUM.indexOf(jung)>=0) bright--;
+    if(CHO_HARSH.indexOf(cho)>=0) rough++;
+    if(CHO_SOFT.indexOf(cho)>=0) soft++;
+    if(jong) batchim++;
+    if(firstCho===null) firstCho=cho;
+    if(prev===ch) echo++;            // 같은 글자 연달아 = 되풀이되는 말
+    prev=ch;
+  }
+  if(!n) return null;
+  return {
+    n,
+    bright: bright/n,                // -1(어둡) .. +1(밝)
+    rough: rough/n,                  // 거센소리·된소리 비율
+    soft: soft/n,                    // 유음·비음 비율
+    closed: batchim/n,               // 받침 비율 = 닫히는 정도
+    sharpStart: firstCho!=null && CHO_HARSH.indexOf(firstCho)>=0,
+    softStart: firstCho!=null && CHO_SOFT.indexOf(firstCho)>=0,
+    echo,
+  };
+}
 function hashStr(t){ let h=2166136261; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0)/4294967295; }
 function readSentence(text){
   const m={ oct:1, durMul:1, noiseAdd:0, glide:0, repeats:1, filtMul:1,
             attack:null, space:null, wave:null, trem:0, seed:0, text:(text||'').trim() };
   if(!m.text) return m;
   const t=m.text;
+  // ① 말소리에서 기본 성격을 뽑는다 — 어떤 문장이든 반드시 달라진다
+  const sp=speechOf(t);
+  if(sp){
+    m.speech = sp;
+    m.stepShift = Math.round(sp.bright*2);                       // 밝은 말은 높은 음으로
+    m.filtMul  = Math.max(0.4, Math.min(2.4, 1 + sp.bright*0.6));
+    m.noiseAdd = Math.max(-0.35, Math.min(0.6, sp.rough*0.8 - sp.soft*0.35));
+    m.durMul   = Math.max(0.5, Math.min(2.4,
+                   (0.75 + sp.n/16) * (1 - sp.closed*0.25) * (1 + sp.soft*0.3)));
+    m.attack   = sp.sharpStart ? 0.006 : (sp.softStart ? 0.22 : 0.05);
+    m.space    = Math.max(0.15, Math.min(0.95, 0.4 + sp.soft*0.5 - sp.closed*0.15));
+    if(sp.rough>0.34) m.wave='sawtooth';
+    else if(sp.soft>0.55) m.wave='sine';
+    if(sp.echo>0) m.trem=1;
+    if(sp.echo>1) m.repeats=Math.min(4, 1+sp.echo);
+  }
+  // ② 뜻이 분명한 말은 사전이 강하게 덮어쓴다
   LEX.forEach(([key,val,words])=>{
     if(!words.some(w=>t.indexOf(w)>=0)) return;
     if(key==='oct')   m.oct=val;
@@ -566,8 +627,8 @@ function readSentence(text){
     if(key==='trem')  m.trem=val;
   });
   m.seed=hashStr(t);
-  m.durMul *= 0.9 + m.seed*0.35;
-  m.filtMul *= 0.85 + m.seed*0.4;
+  m.durMul *= 0.92 + m.seed*0.2;
+  m.filtMul *= 0.9 + m.seed*0.25;
   return m;
 }
 /* 문장이 소리를 어떻게 바꾸는지 사람 말로 */
@@ -583,6 +644,7 @@ function describeMod(m){
   if(m.space!=null) out.push(m.space>0.5 ? '멀리 울리며' : '바로 곁에서');
   if(m.wave==='sawtooth') out.push('쇳소리로'); else if(m.wave==='sine') out.push('맑은 소리로');
   if(m.trem) out.push('일렁이며');
+  if(!out.length && m.speech) out.push('말의 결을 따라');
   return out.length ? '→ '+out.join(' · ')+' 울려요' : '';
 }
 
@@ -604,10 +666,10 @@ function askNote(item){
   $('noteEcho').textContent='문장을 적으면 소리가 그쪽으로 기울어요';
   const nb=$('noteBase');
   if(item.kind==='photo'){
-    nb.textContent = describeTimbre(item.timbre);
+    nb.textContent = describeTimbre(item.timbre, item.pitch);
     if(!item.timbre){
       const tick=setInterval(()=>{
-        if(item.timbre){ nb.textContent=describeTimbre(item.timbre); clearInterval(tick); }
+        if(item.timbre){ nb.textContent=describeTimbre(item.timbre, item.pitch); clearInterval(tick); }
         if(notePending!==item) clearInterval(tick);
       }, 200);
     }
@@ -622,16 +684,31 @@ $('noteInput').addEventListener('input', e=>{
   $('noteEcho').textContent = describeMod(m) || '문장을 적으면 소리가 그쪽으로 기울어요';
 });
 /* 이미지가 만든 기본 소리를 사람 말로 */
-function describeTimbre(tb){
+function describeTimbre(tb, pitch){
   if(!tb) return '조각의 소리를 읽는 중…';
-  const p=[];
-  p.push(tb.bright>0.55 ? '밝아서 트인' : tb.bright<0.35 ? '어두워서 먹먹한' : '중간 밝기의');
-  p.push(tb.hue<70||tb.hue>320 ? '난색이라 거친 결' : tb.hue<180 ? '중간색의 부드러운 결' : '한색이라 둥근 결');
-  if(tb.tex>0.4) p.push('질감이 거칠어 숨소리가 섞인');
-  if(tb.sat>0.35) p.push('쟰한 색이라 두툼한');
-  const reg = tb.bright>0.6 ? '높은' : tb.bright<0.35 ? '낮은' : '중간';
-  return '조각이 낸 소리: '+p.join(', ')+' '+reg+' 음';
+  const b = tb.bright, h = tb.hue, sat = tb.sat, tex = tb.tex;
+  const light = b>0.72 ? '눈부신' : b>0.55 ? '환한' : b>0.4 ? '어스름한'
+              : b>0.25 ? '어두운' : '캄캄한';
+  const color = (h<20||h>=340) ? '붉은' : h<45 ? '주황빛' : h<70 ? '노란'
+              : h<95 ? '연둣빛' : h<160 ? '초록빛' : h<200 ? '청록빛'
+              : h<250 ? '푸른' : h<290 ? '보랏빛' : '자줏빛';
+  const tone = sat>0.5 ? '쨍한' : sat>0.3 ? '짙은' : sat>0.15 ? '은은한' : '물 빠진';
+  const grain = tex>0.55 ? '우툴두툴한' : tex>0.38 ? '거친'
+              : tex>0.2 ? '잔결이 있는' : '매끈한';
+  const note = pitch ? noteNameOf(pitch) : '';
+  return '조각이 낸 소리: ' + light + ' ' + tone + ' ' + color + ' 면에서 나온, '
+       + grain + ' 결의 ' + note + ' 음';
 }
+/* 이 조각이 어떤 음인지 이름으로 알려준다 */
+const NOTE_NAMES=['라','시','도♯','미','파♯'];
+function noteNameOf(freq){
+  const semi = Math.round(12*Math.log2(freq/BASE_FREQ));
+  let idx=0, best=1e9;
+  PENTA.forEach((v,i)=>{ const d=Math.abs(v-semi); if(d<best){ best=d; idx=i; } });
+  const reg = idx>=5 ? '높은 ' : idx<=1 ? '낮은 ' : '';
+  return reg + NOTE_NAMES[idx%5];
+}
+
 function notePreview(useText){
   if(!notePending) return;
   const item=notePending;
@@ -861,7 +938,7 @@ function playFrag(f, at, dry, baseDur){
     const when = t0 + i*GRID;
     const gain = 1 / (1 + i*0.9);
     if(f.kind==='photo') playImageTone(f.timbre, freq, (baseDur||1.3), dry, when, m, gain);
-    else playBuffer(f.buffer, rate*m.oct, gain, dry, when, m);
+    else playBuffer(f.buffer, rate*(m.oct||1)*Math.pow(2, ((m.stepShift||0)*2)/12), gain, dry, when, m);
   }
 }
 function ring(f, ms){ f.el.classList.add('ringing'); setTimeout(()=>f.el.classList.remove('ringing'), ms); }
@@ -918,7 +995,7 @@ function analyzeImageTimbre(src){
 function playImageTone(tb, freq, dur, dry, at, mod, gainMul){
   dry = dry==null ? 1 : dry;
   const m = mod || readSentence('');
-  freq *= (m.oct||1);
+  freq = shiftPitch(freq, m.stepShift||0) * (m.oct||1);
   dur  *= (m.durMul||1);
   if(!tb) return playTone(freq, dur, at);
   const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
