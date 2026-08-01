@@ -201,7 +201,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v14</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v15</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -790,7 +790,8 @@ function waveForVoice(v){
 function playRecipe(r, baseFreq, at, dry, gainMul){
   const ac=ensureAudio(), t0=(at!=null?at:ac.currentTime);
   dry = dry==null?1:dry;
-  const freq = shiftPitch(baseFreq, clamp(Math.round(r.pitchOffset||0), -4, 4));
+  const freq = shiftPitch(baseFreq, clamp(Math.round(r.pitchOffset||0), -7, 7))
+             * clamp(r.octave||1, 0.25, 4);
   const dur  = clamp(r.duration, 0.3, 4);
   const rel  = clamp(r.envelope && r.envelope.release, 0.05, 3);
   const out=ac.createGain(); out.gain.value=(gainMul==null?1:gainMul);
@@ -805,7 +806,17 @@ function playRecipe(r, baseFreq, at, dry, gainMul){
   if(Math.abs(cTo-c0)>40)
     flt.frequency.exponentialRampToValueAtTime(cTo, t0+clamp(r.filter&&r.filter.sweepTime, 0.05, dur));
   flt.Q.value=clamp(r.filter&&r.filter.q, 0.1, 18);
-  flt.connect(out);
+  // 드라이브 — 파형을 찌그러뜨려 거칠게
+  if(clamp(r.drive,0,1)>0.05){
+    const ws=ac.createWaveShaper();
+    const k=clamp(r.drive,0,1)*80, n=1024, cur=new Float32Array(n);
+    for(let i=0;i<n;i++){ const x=i*2/n-1; cur[i]=(1+k)*x/(1+k*Math.abs(x)); }
+    ws.curve=cur; ws.oversample='2x';
+    const dg=ac.createGain(); dg.gain.value=0.55;
+    flt.connect(ws); ws.connect(dg); dg.connect(out);
+  } else {
+    flt.connect(out);
+  }
 
   const g=ac.createGain(); g.connect(flt);
   const env=r.envelope||{};
@@ -952,59 +963,59 @@ function askNote(item){
 /* ---------- 여섯 가지 섬유유연제 향 ----------
    각 향은 하나의 음향 레시피다. 조각이 낸 음은 그대로 두고, 그 음의 '결'만 헹군다. */
 const SCENTS = [
-  { id:'breeze', emo:'🌬', name:'산들바람', desc:'가볍게 흔들리며 멀리 퍼져요',
-    recipe:{ voice:'breath',
-      partials:[{ratio:1,gain:1},{ratio:2,gain:0.5},{ratio:3.01,gain:0.24}],
-      envelope:{attack:0.25,decay:0.4,sustain:0.5,release:1.6},
-      filter:{type:'lowpass',cutoff:5200,q:1,sweepTo:2600,sweepTime:1.6},
-      noise:{amount:0.22,bright:0.85,burst:false},
-      vibrato:{rate:5.5,depth:0.012}, tremolo:{rate:4.5,depth:0.5},
-      pitchOffset:2, glideSteps:0, hits:1, hitSpacing:1, space:0.78, duration:2.0 } },
+  { id:'lavender', emo:'🌙', name:'라벤더 밤', desc:'아주 부드럽고 느긋하게 — 천천히 부풀어 오래 잠겨요',
+    recipe:{ voice:'water', octave:1,
+      partials:[{ratio:1,gain:1},{ratio:2,gain:0.22},{ratio:3,gain:0.08}],
+      envelope:{attack:1.2,decay:1.5,sustain:0.85,release:3.0},
+      filter:{type:'lowpass',cutoff:900,q:0.7,sweepTo:480,sweepTime:3.0},
+      noise:{amount:0.02,bright:0.2,burst:false},
+      vibrato:{rate:2,depth:0.004}, tremolo:{rate:0.8,depth:0.14},
+      pitchOffset:-1, glideSteps:0, hits:1, hitSpacing:1, space:0.95, duration:3.6 } },
 
-  { id:'sun', emo:'☀️', name:'햇살 이불', desc:'따뜻하고 넓게 부풀어요',
-    recipe:{ voice:'choir',
-      partials:[{ratio:1,gain:1},{ratio:2,gain:0.45},{ratio:3,gain:0.2},{ratio:4,gain:0.1}],
-      envelope:{attack:0.35,decay:0.6,sustain:0.7,release:2.2},
-      filter:{type:'lowpass',cutoff:1400,q:0.8,sweepTo:1100,sweepTime:1.8},
-      noise:{amount:0.05,bright:0.3,burst:false},
-      vibrato:{rate:4,depth:0.006}, tremolo:{rate:2,depth:0.15},
-      pitchOffset:0, glideSteps:0, hits:1, hitSpacing:1, space:0.6, duration:2.6 } },
+  { id:'burlap', emo:'🪢', name:'거친 삼베', desc:'거칠고 사납게 — 찢기듯 갈리는 소리',
+    recipe:{ voice:'string', octave:1, drive:0.85,
+      partials:[{ratio:1,gain:1},{ratio:1.5,gain:0.7},{ratio:2.33,gain:0.6},{ratio:3.7,gain:0.4}],
+      envelope:{attack:0.002,decay:0.5,sustain:0.4,release:0.7},
+      filter:{type:'bandpass',cutoff:1200,q:1.2,sweepTo:650,sweepTime:1.2},
+      noise:{amount:0.6,bright:0.5,burst:false},
+      vibrato:{rate:0,depth:0}, tremolo:{rate:14,depth:0.35},
+      pitchOffset:0, glideSteps:0, hits:2, hitSpacing:0.5, space:0.3, duration:1.5 } },
 
-  { id:'rain', emo:'🌦', name:'비 갠 아침', desc:'맑은 물방울처럼 또렷하게 떨어져요',
-    recipe:{ voice:'bell',
-      partials:[{ratio:1,gain:1},{ratio:2.76,gain:0.5},{ratio:5.4,gain:0.22}],
-      envelope:{attack:0.004,decay:0.18,sustain:0.06,release:1.2},
-      filter:{type:'bandpass',cutoff:2600,q:3,sweepTo:3200,sweepTime:0.5},
-      noise:{amount:0.12,bright:0.9,burst:true},
+  { id:'attic', emo:'📻', name:'오래된 옷장', desc:'낡은 잡음이 섞여 — 오래된 라디오처럼 지직거려요',
+    recipe:{ voice:'wood', octave:1, drive:0.35,
+      partials:[{ratio:1,gain:0.7},{ratio:2,gain:0.22},{ratio:2.9,gain:0.1}],
+      envelope:{attack:0.05,decay:0.6,sustain:0.5,release:1.0},
+      filter:{type:'bandpass',cutoff:850,q:4.5,sweepTo:950,sweepTime:2.0},
+      noise:{amount:0.8,bright:0.32,burst:false},
+      vibrato:{rate:0.8,depth:0.022}, tremolo:{rate:5,depth:0.28},
+      pitchOffset:0, glideSteps:0, hits:1, hitSpacing:1, space:0.45, duration:2.4 } },
+
+  { id:'bubble', emo:'🫧', name:'비눗방울', desc:'아주 빠르게 — 톡톡톡톡 연달아 터져요',
+    recipe:{ voice:'bell', octave:1,
+      partials:[{ratio:1,gain:1},{ratio:3.2,gain:0.4}],
+      envelope:{attack:0.002,decay:0.07,sustain:0.02,release:0.14},
+      filter:{type:'bandpass',cutoff:3000,q:4,sweepTo:5200,sweepTime:0.1},
+      noise:{amount:0.18,bright:0.9,burst:true},
       vibrato:{rate:0,depth:0}, tremolo:{rate:0,depth:0},
-      pitchOffset:3, glideSteps:0, hits:3, hitSpacing:1, space:0.55, duration:0.9 } },
+      pitchOffset:3, glideSteps:1, hits:8, hitSpacing:0.25, space:0.4, duration:0.22 } },
 
-  { id:'lavender', emo:'🌙', name:'라벤더 밤', desc:'낮게 가라앉아 오래 잠겨요',
-    recipe:{ voice:'drone',
-      partials:[{ratio:0.5,gain:0.7},{ratio:1,gain:1},{ratio:1.5,gain:0.3}],
-      envelope:{attack:0.6,decay:1.2,sustain:0.6,release:2.8},
-      filter:{type:'lowpass',cutoff:700,q:1.2,sweepTo:320,sweepTime:2.6},
-      noise:{amount:0.06,bright:0.15,burst:false},
-      vibrato:{rate:3,depth:0.004}, tremolo:{rate:1.2,depth:0.2},
-      pitchOffset:-2, glideSteps:-2, hits:1, hitSpacing:1, space:0.92, duration:3.0 } },
+  { id:'sun', emo:'☀️', name:'햇볕 바싹', desc:'아주 높고 쨍하게 — 한 옥타브 위에서 빛나요',
+    recipe:{ voice:'bell', octave:2,
+      partials:[{ratio:1,gain:1},{ratio:2,gain:0.45},{ratio:4,gain:0.22}],
+      envelope:{attack:0.004,decay:0.35,sustain:0.25,release:1.6},
+      filter:{type:'lowpass',cutoff:9000,q:1,sweepTo:6000,sweepTime:1.4},
+      noise:{amount:0.1,bright:0.95,burst:true},
+      vibrato:{rate:6,depth:0.01}, tremolo:{rate:6,depth:0.2},
+      pitchOffset:3, glideSteps:0, hits:2, hitSpacing:1, space:0.62, duration:1.4 } },
 
-  { id:'wood', emo:'🪵', name:'오래된 나무장', desc:'마르고 둔탁하게 툭 떨어져요',
-    recipe:{ voice:'wood',
-      partials:[{ratio:1,gain:1},{ratio:1.9,gain:0.35},{ratio:3.4,gain:0.15}],
-      envelope:{attack:0.006,decay:0.28,sustain:0.08,release:0.6},
-      filter:{type:'lowpass',cutoff:1100,q:2.2,sweepTo:520,sweepTime:0.5},
-      noise:{amount:0.3,bright:0.25,burst:true},
-      vibrato:{rate:0,depth:0}, tremolo:{rate:0,depth:0},
-      pitchOffset:-1, glideSteps:0, hits:2, hitSpacing:0.5, space:0.28, duration:0.8 } },
-
-  { id:'lemon', emo:'🍋', name:'레몬 비누', desc:'톡 쏘며 반짝반짝 튀어요',
-    recipe:{ voice:'metal',
-      partials:[{ratio:1,gain:1},{ratio:3.1,gain:0.6},{ratio:6.3,gain:0.35},{ratio:9.2,gain:0.18}],
-      envelope:{attack:0.003,decay:0.3,sustain:0.1,release:1.5},
-      filter:{type:'bandpass',cutoff:3400,q:5,sweepTo:5200,sweepTime:0.8},
-      noise:{amount:0.25,bright:0.95,burst:true},
-      vibrato:{rate:7,depth:0.02}, tremolo:{rate:11,depth:0.4},
-      pitchOffset:4, glideSteps:2, hits:4, hitSpacing:0.5, space:0.5, duration:1.1 } },
+  { id:'deep', emo:'🌊', name:'깊은 물', desc:'아주 낮고 묵직하게 — 한 옥타브 아래로 가라앉아요',
+    recipe:{ voice:'drone', octave:0.5,
+      partials:[{ratio:0.5,gain:0.9},{ratio:1,gain:1},{ratio:1.5,gain:0.25},{ratio:2,gain:0.12}],
+      envelope:{attack:0.4,decay:1.4,sustain:0.75,release:2.6},
+      filter:{type:'lowpass',cutoff:340,q:1.4,sweepTo:180,sweepTime:2.8},
+      noise:{amount:0.1,bright:0.08,burst:false},
+      vibrato:{rate:1.5,depth:0.006}, tremolo:{rate:1,depth:0.18},
+      pitchOffset:-3, glideSteps:-1, hits:1, hitSpacing:1, space:0.9, duration:3.4 } },
 ];
 function scentById(id){ return SCENTS.find(x=>x.id===id) || null; }
 function renderScents(sel){
@@ -1283,8 +1294,8 @@ function playFrag(f, at, dry, baseDur){
   const t0 = at!=null ? at : ac.currentTime;
   // AI 레시피가 있으면 그것이 이 조각의 소리다
   if(f.recipe){
-    const hits=Math.max(1, Math.min(5, Math.round(f.recipe.hits||1)));
-    const sp=Math.max(0.5, Math.min(4, f.recipe.hitSpacing||1));
+    const hits=Math.max(1, Math.min(9, Math.round(f.recipe.hits||1)));
+    const sp=Math.max(0.25, Math.min(4, f.recipe.hitSpacing||1));
     const base=(f.pitch!=null)?f.pitch:(ready()&&f.t!=null?pitchAt(f.t):BASE_FREQ*Math.pow(2,PENTA[4]/12));
     for(let i=0;i<hits;i++) playRecipe(f.recipe, base, t0+i*GRID*sp, dry, 1/(1+i*0.7));
     return;
