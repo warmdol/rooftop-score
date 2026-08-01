@@ -653,11 +653,12 @@ function analyzeImageTimbre(src){
     img.src=src;
   });
 }
-function playImageTone(tb, freq, dur, dry){
+function playImageTone(tb, freq, dur, dry, at){
   dry = dry==null ? 1 : dry;
-  if(!tb) return playTone(freq, dur);
-  const ac=ensureAudio(), t0=ac.currentTime;
-  const out=ac.createGain(); out.gain.value=1; out.connect(ac.destination);
+  if(!tb) return playTone(freq, dur, at);
+  const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
+  const out=ac.createGain(); out.gain.value=1;
+  routeNote(out);
   // 파형: 색상으로 결정 (난색=거칠게, 한색=둥글게)
   const wave = tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine');
   const flt=ac.createBiquadFilter(); flt.type='lowpass';
@@ -685,12 +686,68 @@ function playImageTone(tb, freq, dur, dry){
   lfo.frequency.value=3+tb.tex*8; lg.gain.value=freq*0.006*(0.4+tb.tex);
   lfo.connect(lg); lg.connect(o1.frequency);
   o1.start(t0); o2.start(t0); lfo.start(t0);
-  const tEnd=t0+dur+0.15; o1.stop(tEnd); o2.stop(tEnd); lfo.stop(tEnd);
+  const tEnd=t0+dur+2.5; o1.stop(tEnd); o2.stop(tEnd); lfo.stop(tEnd);
+}
+
+/* ---------- 음악화 엔진: 마스터 버스 / 드론 / 박자 ----------
+   모든 소리를 같은 리버브+컴프레서로 통과시켜 한 공간의 소리로 묶고,
+   트리거는 박자 격자에, 음정은 펜타토닉에 스냅한다. */
+const BPM = 84;
+const BEAT = 60 / BPM;
+const GRID = BEAT / 2;           // 8분음표 격자
+let master = null;
+function makeImpulse(ac, dur, decay){
+  const len = Math.floor(ac.sampleRate * dur);
+  const buf = ac.createBuffer(2, len, ac.sampleRate);
+  for(let ch = 0; ch < 2; ch++){
+    const d = buf.getChannelData(ch);
+    for(let i = 0; i < len; i++){
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+function ensureMaster(){
+  const ac = ensureAudio();
+  if(master) return master;
+  const inBus = ac.createGain(); inBus.gain.value = 0.9;
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -20; comp.knee.value = 18; comp.ratio.value = 4;
+  inBus.connect(comp); comp.connect(ac.destination);
+  const verb = ac.createConvolver();
+  verb.buffer = makeImpulse(ac, 2.4, 2.6);
+  const wet = ac.createGain(); wet.gain.value = 0.5;
+  verb.connect(wet); wet.connect(inBus);
+  master = { in: inBus, verb };
+  return master;
+}
+function outBus(){ return ensureMaster().in; }
+function verbSend(node, amt){
+  const ac = ensureAudio();
+  const g = ac.createGain(); g.gain.value = amt;
+  node.connect(g); g.connect(ensureMaster().verb);
+}
+/* 드론: 공연 내내 깔리는 지속 저음 (A + E) — 조성의 바닥 */
+function startDrone(at, dur){
+  const ac = ensureAudio();
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(0.07, at + 2);
+  g.gain.setValueAtTime(0.07, at + dur - 2.5);
+  g.gain.linearRampToValueAtTime(0, at + dur);
+  const flt = ac.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 420;
+  g.connect(flt); flt.connect(outBus()); verbSend(flt, 0.4);
+  [[110, 'sine', 1], [164.81, 'triangle', 0.5], [220, 'sine', 0.22]].forEach(([f, w, v]) => {
+    const o = ac.createOscillator(); o.type = w; o.frequency.value = f;
+    const og = ac.createGain(); og.gain.value = v;
+    o.connect(og); og.connect(g);
+    o.start(at); o.stop(at + dur + 0.2);
+  });
 }
 
 /* ---------- 사운드 ---------- */
-function playTone(freq, dur){
-  const ac=ensureAudio(), t0=ac.currentTime;
+function playTone(freq, dur, at){
+  const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
   const o=ac.createOscillator(), g=ac.createGain();
   o.type='sine'; o.frequency.value=freq;
   const o2=ac.createOscillator(), g2=ac.createGain();
@@ -698,29 +755,45 @@ function playTone(freq, dur){
   g.gain.setValueAtTime(0,t0);
   g.gain.linearRampToValueAtTime(0.5,t0+0.02);
   g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
-  o.connect(g); o2.connect(g2); g2.connect(g); g.connect(ac.destination);
-  o.start(t0); o2.start(t0); o.stop(t0+dur+0.1); o2.stop(t0+dur+0.1);
+  o.connect(g); o2.connect(g2); g2.connect(g);
+  routeNote(g);
+  o.start(t0); o2.start(t0); o.stop(t0+dur+2.5); o2.stop(t0+dur+2.5);
+}
+/* 음표 공통 라우팅: 마스터버스 + 리버브 + 박자 동기 에코 */
+function routeNote(node){
+  const ac=ensureAudio();
+  node.connect(outBus());
+  verbSend(node, 0.5);
+  const dly=ac.createDelay(2); dly.delayTime.value=GRID*3;   // 점박자 에코
+  const fb=ac.createGain(); fb.gain.value=0.3;
+  const wet=ac.createGain(); wet.gain.value=0.22;
+  node.connect(dly); dly.connect(fb); fb.connect(dly);
+  dly.connect(wet); wet.connect(outBus()); verbSend(wet, 0.4);
 }
 function rateAt(t){
   let yMin=1e9,yMax=-1e9;
   for(let s=0;s<=1.0001;s+=0.02){ const y=curvePoint(s).y; yMin=Math.min(yMin,y); yMax=Math.max(yMax,y); }
   const n=(yMax-curvePoint(t).y)/Math.max(1,(yMax-yMin));
-  return 0.8 + n*0.5; // 0.8x ~ 1.3x
+  // 재생 속도를 펜타토닉 반음 비율로 양자화 — 녹음도 조성 안으로
+  const semis=[-5,-3,0,2,4];
+  const idx=Math.round(n*(semis.length-1));
+  return Math.pow(2, semis[idx]/12);
 }
-function playBuffer(buffer, rate, gain, dry){
+function playBuffer(buffer, rate, gain, dry, at){
   dry = dry==null ? 1 : dry;
-  const ac=ensureAudio();
+  const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
   const s=ac.createBufferSource(); s.buffer=buffer; s.playbackRate.value=rate||1;
   const g=ac.createGain(); g.gain.value=gain??1;
   s.connect(g);
+  let tail=g;
   if(dry<0.97){
     const f=ac.createBiquadFilter(); f.type='lowpass';
     f.frequency.value = 700 + 8000*dry;
-    g.connect(f); f.connect(ac.destination);
-  } else {
-    g.connect(ac.destination);
+    g.connect(f); tail=f;
   }
-  s.start();
+  tail.connect(outBus());
+  verbSend(tail, 0.4);
+  s.start(t0);
   return s;
 }
 
@@ -730,26 +803,36 @@ function play(){
   if(!ready()){ toast('먼저 줄을 보정하세요'); return; }
   if(!state.frags.length){ toast('널린 조각이 없습니다'); return; }
   if(state.playing) return;
-  ensureAudio();
+  const ac=ensureAudio(); ensureMaster();
   state.playing=true; $('btnPlay').disabled=true;
   const ph=$('playhead'); ph.style.display='block';
-  const played=new Set();
-  const t0=performance.now();
+
+  /* 오디오는 박자 격자에 스냅해 미리 정밀 스케줄링, 시각은 rAF로 따라감 */
+  const startAt = ac.currentTime + 0.15;
+  startDrone(startAt, PLAY_SECONDS + 3);
+  state.frags.forEach(f=>{
+    const raw = f.t * PLAY_SECONDS;
+    f._trig = Math.round(raw / GRID) * GRID;      // 8분음표 스냅
+    const when = startAt + f._trig;
+    const d = dryness(f);
+    if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 1.3, d, when);
+    else playBuffer(f.buffer, rateAt(f.t), 1.0, d, when);
+  });
+
+  const t0=performance.now() + 150;
+  const rung=new Set();
   (function step(){
     const el=(performance.now()-t0)/1000;
-    const t=Math.min(1, el/PLAY_SECONDS);
+    const t=Math.min(1, Math.max(0, el)/PLAY_SECONDS);
     const p=curvePoint(t);
     ph.style.left=p.x+'px'; ph.style.top=p.y+'px';
     state.frags.forEach(f=>{
-      if(!played.has(f.id) && f.t<=t){
-        played.add(f.id);
-        const d=dryness(f);
-        if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 1.3, d);
-        else playBuffer(f.buffer, rateAt(f.t), 1.0, d);
+      if(!rung.has(f.id) && el >= f._trig){
+        rung.add(f.id);
         ring(f, 1200);
       }
     });
-    if(t<1){ requestAnimationFrame(step); }
+    if(el < PLAY_SECONDS){ requestAnimationFrame(step); }
     else { state.playing=false; $('btnPlay').disabled=false; ph.style.display='none';
            toast('기억은 오늘에서 내일로 이어집니다', 4000); }
   })();
