@@ -62,6 +62,9 @@
     background:linear-gradient(rgba(10,10,14,.85), rgba(10,10,14,0)); }
   #topbar h1 { font-size:15px; font-weight:600; letter-spacing:.5px; }
   #topbar .sub { font-size:11px; color:var(--dim); }
+  #btnGyro { margin-left:auto; width:34px; height:34px; border-radius:10px; font-size:15px;
+    border:1px solid rgba(255,255,255,.2); background:rgba(24,26,34,.7); opacity:.45; }
+  #btnGyro.on { opacity:1; background:var(--accent); }
   #hint { position:fixed; top:52px; left:0; right:0; text-align:center; z-index:30;
     font-size:13px; color:var(--accent); text-shadow:0 1px 4px #000; padding:0 20px; }
 
@@ -84,6 +87,16 @@
   #setup button { width:min(320px, 86vw); padding:15px; border-radius:16px; font-size:15px;
     border:1px solid rgba(255,255,255,.2); background:#1b1e27; color:var(--ink); }
   #setup button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
+
+  /* ---------- 채집 미션 인트로 ---------- */
+  #missionIntro { position:fixed; inset:0; z-index:45; display:none;
+    background:rgba(8,9,13,.93); flex-direction:column; align-items:center; justify-content:center;
+    gap:18px; padding:34px; text-align:center; }
+  #missionIntro .rope-art { width:min(300px,80vw); height:60px; }
+  #missionIntro h2 { font-size:19px; font-weight:700; line-height:1.5; }
+  #missionIntro p { font-size:13.5px; color:var(--dim); line-height:1.8; max-width:330px; }
+  #missionIntro button { padding:15px 30px; border-radius:16px; font-size:15px; font-weight:700;
+    border:none; background:var(--accent); color:#1a1508; }
 
   /* ---------- record sheet ---------- */
   #recSheet { position:fixed; left:0; right:0; bottom:0; z-index:50; display:none;
@@ -129,6 +142,7 @@
 
 <div id="topbar" style="display:none">
   <h1>옥상 악보</h1><span class="sub" id="mode-label"></span>
+  <button id="btnGyro" title="자이로 따라가기">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
 
@@ -137,8 +151,22 @@
   <button class="tool" id="btnRec">🎙<br>녹음해 담기</button>
   <button class="tool" id="btnBasket">🧺<br>바구니<span id="basketBadge"></span></button>
   <button class="tool primary" id="btnPlay">▶<br>연주</button>
-  <button class="tool" id="btnDemo">✚<br>데모</button>
+  <button class="tool" id="btnDemo" style="display:none">✚<br>데모</button>
   <button class="tool" id="btnCal">↺<br>줄긋기</button>
+</div>
+
+<div id="missionIntro">
+  <svg class="rope-art" viewBox="0 0 300 60">
+    <path d="M8,14 Q150,52 292,20" fill="none" stroke="#ffd97a" stroke-width="2" stroke-dasharray="6 6" opacity=".8"/>
+    <circle cx="8" cy="14" r="4" fill="#ffd97a"/><circle cx="292" cy="20" r="4" fill="#ffd97a"/>
+  </svg>
+  <h2>빨랫줄은 아직 비어 있습니다</h2>
+  <p>이 줄은 아무도 연주한 적 없는 악보예요.<br>
+     옥상을 돌아다니며 줄에 널 조각들을 찾아오세요.<br><br>
+     📷 눈에 밟히는 것은 <b>찍어서</b><br>
+     🎙 귀에 들리는 것은 <b>녹음해서</b><br>
+     🧺 바구니에 담아 오면 됩니다.</p>
+  <button id="missionGo">찾으러 나가기</button>
 </div>
 
 <div id="basketSheet">
@@ -151,9 +179,9 @@
   <h1>옥상 악보</h1>
   <p>옥상을 돌아다니며 사진과 소리를 채집해 바구니에 담고,<br>
      줄 앞에 돌아와 손가락으로 줄을 따라 그은 뒤 널어 연주하세요.</p>
-  <button class="primary" id="setupLive">📱 카메라로 줄 비추기 (AR)</button>
-  <button id="setupPhoto">🖼 줄 사진으로 시작</button>
-  <button id="setupDemo">✨ 데모 이미지로 시작</button>
+  <button class="primary" id="setupLive">시작하기</button>
+  <button id="setupPhoto" style="display:none">🖼 줄 사진으로 시작</button>
+  <button id="setupDemo" style="display:none">✨ 데모 이미지로 시작</button>
   <p id="setupNote" style="font-size:11px"></p>
 </div>
 
@@ -193,7 +221,7 @@ const stage = $('stage'), arLayer = $('arLayer'), ropeCanvas = $('ropeCanvas'), 
 
 /* ---------- 자이로 정합 (LIVE 모드) ----------
    보정 시점의 기기 방향을 기준으로, 팬/틸트한 만큼 오버레이를 반대로 이동 */
-const gyro = { ref:null, cur:null, dx:0, dy:0 };
+const gyro = { on:false, ref:null, cur:null, dx:0, dy:0 };
 window.addEventListener('deviceorientation', e=>{
   if(e.beta==null) return;
   gyro.cur = { a:e.alpha||0, b:e.beta, g:e.gamma||0 };
@@ -209,7 +237,7 @@ function rotM(a,b,g){
 }
 function gyroApply(){
   let tx=0, ty=0;
-  if(state.mode==='live' && gyro.ref && gyro.cur){
+  if(gyro.on && state.mode==='live' && gyro.ref && gyro.cur){
     const R0=rotM(gyro.ref.a,gyro.ref.b,gyro.ref.g);
     const R =rotM(gyro.cur.a,gyro.cur.b,gyro.cur.g);
     // 보정 시점 카메라 전방(-Z_dev)을 월드 좌표로
@@ -228,6 +256,9 @@ function gyroApply(){
       const {w,h}=px();
       const ppd=Math.min(w,h)/50; // 짧은 축 기준 화각 50° 근사
       tx=sx*ppd; ty=-sy*ppd;
+      // 화면 밖으로 날아가지 않게 제한
+      const mx=w*0.35, my=h*0.35;
+      tx=Math.max(-mx,Math.min(mx,tx)); ty=Math.max(-my,Math.min(my,ty));
     }
   }
   gyro.dx += (tx-gyro.dx)*0.3; gyro.dy += (ty-gyro.dy)*0.3;
@@ -397,6 +428,7 @@ function basketAdd(item){
   state.basket.push(item);
   updateBasket();
   toast('🧺 빨래바구니에 담았습니다 ('+state.basket.length+')');
+  if(state.basket.length===3) hint('넉넉히 모였어요 — 줄 앞으로 가서 🧺 바구니에서 꺼내 널어보세요');
 }
 function updateBasket(){
   const b=$('basketBadge');
@@ -873,6 +905,24 @@ $('btnDemo').addEventListener('click', ()=>{
   }
 });
 
+/* ---------- 미션 인트로 ---------- */
+$('missionGo').addEventListener('click', ()=>{
+  $('missionIntro').style.display='none';
+  hint('지금은 채집 시간 — 줄에 널 것들을 찾아 다니세요 🧺');
+});
+
+/* ---------- 자이로 토글 ---------- */
+$('btnGyro').addEventListener('click', ()=>{
+  gyro.on=!gyro.on;
+  $('btnGyro').classList.toggle('on', gyro.on);
+  if(gyro.on){
+    gyro.ref = gyro.cur ? {...gyro.cur} : null;  // 지금 보이는 위치를 기준으로 재고정
+    toast('📡 따라가기 켬 — 지금 화면 위치를 기준으로 고정합니다');
+  } else {
+    toast('📡 따라가기 끔');
+  }
+});
+
 /* ---------- 보정 ---------- */
 function startCalibration(){
   state.curvePts=null; state.calibrating=true; gyro.ref=null;
@@ -887,7 +937,7 @@ function enterStage(modeLabel){
   $('topbar').style.display='flex';
   $('toolbar').style.display='flex';
   $('mode-label').textContent=modeLabel;
-  toast('옥상을 돌아다니며 📷/🎙로 채집하세요 — 널 때가 되면 줄 앞에서 ↺ 줄긋기', 4200);
+  $('missionIntro').style.display='flex';
 }
 $('setupLive').addEventListener('click', async ()=>{
   ensureAudio();
@@ -924,6 +974,11 @@ $('setupDemo').addEventListener('click', ()=>{
 });
 
 /* ---------- 리사이즈 ---------- */
+if(new URLSearchParams(location.search).has('demo')){
+  $('setupPhoto').style.display='';
+  $('setupDemo').style.display='';
+  $('btnDemo').style.display='';
+}
 window.addEventListener('resize', ()=>{ drawRope(); repositionAll(); });
 (function loop(){ drawRope(); gyroApply(); requestAnimationFrame(loop); })();
 </script>
