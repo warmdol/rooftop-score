@@ -1109,8 +1109,13 @@ const cutActions = {
   cutRetake(){
     cut.pts=[]; cut.drawing=false;
     $('cutSheet').style.display='none';
-    if(state.mode==='live' && window._liveVideoReady) captureFromLive();
-    else $('fileFrag').click();
+    if(state.mode==='live'){
+      // 바로 찍지 않고 카메라 화면으로 돌아가 다시 겨눌 수 있게
+      hint('다시 겨눠보세요 — 준비되면 📷 찍어 담기');
+      setTimeout(()=>{ if(!state.placing) hint(''); }, 4000);
+    } else {
+      $('fileFrag').click();
+    }
   },
   cutRect(){
     $('cutSheet').style.display='none';
