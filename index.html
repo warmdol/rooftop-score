@@ -462,6 +462,16 @@ function dryness(f){
 }
 /* 화면은 항상 선명하게 — 마름은 소리에만 반영한다 */
 
+/* 조각이 스스로 음높이를 갖는다 — 줄 위치는 '언제'만 정한다 */
+function pitchOfTimbre(tb){
+  if(!tb) return BASE_FREQ*Math.pow(2, PENTA[4]/12);
+  const n = Math.max(0, Math.min(1, tb.bright*0.85 + tb.sat*0.15));
+  let idx = Math.round(n*(PENTA.length-1));
+  const hueShift = tb.hue<120 ? -1 : (tb.hue>240 ? 1 : 0);
+  idx = Math.max(0, Math.min(PENTA.length-1, idx + hueShift));
+  return BASE_FREQ*Math.pow(2, PENTA[idx]/12);
+}
+
 /* ---------- 한 문장 → 소리 변조 ----------
    문장은 임의의 소리를 만들지 않는다. 이미 조율된 음악 안에서
    그 음의 성격(음역·길이·결·온도·울림)만 바꿀 — 합주는 유지된다. */
@@ -552,7 +562,8 @@ function describeTimbre(tb){
   p.push(tb.hue<70||tb.hue>320 ? '난색이라 거친 결' : tb.hue<180 ? '중간색의 부드러운 결' : '한색이라 둥근 결');
   if(tb.tex>0.4) p.push('질감이 거칠어 숨소리가 섞인');
   if(tb.sat>0.35) p.push('쟰한 색이라 두툼한');
-  return '조각이 낸 소리: '+p.join(', ')+' 음';
+  const reg = tb.bright>0.6 ? '높은' : tb.bright<0.35 ? '낮은' : '중간';
+  return '조각이 낸 소리: '+p.join(', ')+' '+reg+' 음';
 }
 function notePreview(useText){
   if(!notePending) return;
@@ -562,7 +573,7 @@ function notePreview(useText){
   if(ac.state==='suspended') ac.resume();
   const dummy = {
     kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer, mod:m,
-    pitch: BASE_FREQ*Math.pow(2, PENTA[4]/12),   // 기준음 (줄과 무관)
+    pitch: item.pitch || pitchOfTimbre(item.timbre),   // 조각이 가진 음
     rate: 1,
   };
   playFrag(dummy, null, 1, 1.1);
@@ -590,12 +601,12 @@ $('noteInput').addEventListener('keydown', e=>{ if(e.key==='Enter') closeNote(tr
 
 /* 채집 → 빨래바구니 (걸기는 줄 앞에서) */
 function addPhotoFrag(imgSrc, isCut){
-  const item={kind:'photo', img:imgSrc, cut:!!isCut, timbre:null, note:'', mod:readSentence('')};
-  analyzeImageTimbre(imgSrc).then(tb=>{ item.timbre=tb; });
+  const item={kind:'photo', img:imgSrc, cut:!!isCut, timbre:null, pitch:null, note:'', mod:readSentence('')};
+  analyzeImageTimbre(imgSrc).then(tb=>{ item.timbre=tb; item.pitch=pitchOfTimbre(tb); });
   askNote(item);
 }
 function addSoundFrag(buffer){
-  askNote({kind:'sound', buffer, note:'', mod:readSentence('')});
+  askNote({kind:'sound', buffer, rate:1, note:'', mod:readSentence('')});
 }
 function basketAdd(item){
   state.basket.push(item);
@@ -638,13 +649,14 @@ function beginPlacing(item){
     const el=makeFragEl(item.cut?'cutout':'polaroid');
     const img=document.createElement('img'); img.src=item.img; el.insertBefore(img, el.querySelector('.del'));
     f={id:++fragSeq, kind:'photo', t:null, el, img:item.img, timbre:item.timbre,
+       pitch:item.pitch||pitchOfTimbre(item.timbre),
        note:item.note||'', mod:item.mod||readSentence('')};
   } else {
     const el=makeFragEl('ribbon');
     const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
     el.insertBefore(cv, el.querySelector('.del'));
     drawWaveform(cv, item.buffer);
-    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer,
+    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer, rate:1,
        note:item.note||'', mod:item.mod||readSentence('')};
   }
   if(f.note){
