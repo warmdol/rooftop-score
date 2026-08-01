@@ -30,6 +30,20 @@
   .frag.ribbon { background:rgba(250,247,240,.16); border:1px solid rgba(250,247,240,.35);
     backdrop-filter: blur(2px); border-radius:3px; padding:4px; box-shadow:0 6px 14px rgba(0,0,0,.45); }
   .frag.ribbon canvas { display:block; width:110px; height:44px; }
+  .frag.cutout { background:transparent; padding:0; box-shadow:none;
+    filter: drop-shadow(0 8px 12px rgba(0,0,0,.55)); }
+  .frag.cutout img { display:block; max-width:130px; max-height:130px; }
+
+  /* ---------- 오리기 시트 ---------- */
+  #cutSheet { position:fixed; inset:0; z-index:55; background:rgba(8,9,13,.96); display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:16px; }
+  #cutSheet .msg { font-size:13px; color:var(--accent); text-align:center; }
+  #cutCanvas { max-width:94vw; max-height:62vh; border-radius:8px; touch-action:none;
+    box-shadow:0 8px 30px rgba(0,0,0,.6); }
+  #cutSheet .row { display:flex; gap:8px; }
+  #cutSheet button { padding:11px 16px; border-radius:13px; font-size:13.5px;
+    border:1px solid rgba(255,255,255,.22); background:#1b1e27; color:var(--ink); }
+  #cutSheet button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
   .frag .del { position:absolute; top:-30px; right:-12px; width:24px; height:24px; border-radius:50%;
     background:rgba(20,20,20,.85); color:#fff; border:1px solid #666; font-size:13px; line-height:22px;
     text-align:center; display:none; }
@@ -114,6 +128,16 @@
   <button id="setupPhoto">🖼 줄 사진으로 시작</button>
   <button id="setupDemo">✨ 데모 이미지로 시작</button>
   <p id="setupNote" style="font-size:11px"></p>
+</div>
+
+<div id="cutSheet">
+  <div class="msg">널고 싶은 것의 둘레를 손가락으로 따라 그리세요</div>
+  <canvas id="cutCanvas"></canvas>
+  <div class="row">
+    <button id="cutRetry">↺ 다시</button>
+    <button id="cutRect">사각형 그대로</button>
+    <button id="cutOk" class="primary" disabled>✂ 오려 널기</button>
+  </div>
 </div>
 
 <div id="recSheet">
@@ -209,9 +233,9 @@ function pitchAt(t){
 
 /* ---------- 조각 ---------- */
 let fragSeq=0;
-function makeFragEl(kind){
+function makeFragEl(cls){
   const el=document.createElement('div');
-  el.className='frag '+(kind==='photo'?'polaroid':'ribbon');
+  el.className='frag '+cls;
   el.style.setProperty('--r0',(Math.random()*6-3)+'deg');
   el.style.setProperty('--r1',(Math.random()*6-3)+'deg');
   el.style.animationDelay=(-Math.random()*3)+'s';
@@ -227,15 +251,15 @@ function positionFrag(f){
 }
 function repositionAll(){ state.frags.forEach(positionFrag); }
 
-function addPhotoFrag(imgSrc){
-  const el=makeFragEl('photo');
+function addPhotoFrag(imgSrc, isCut){
+  const el=makeFragEl(isCut?'cutout':'polaroid');
   const img=document.createElement('img'); img.src=imgSrc; el.insertBefore(img, el.querySelector('.del'));
   const f={id:++fragSeq, kind:'photo', t:null, el, img:imgSrc};
   bindFrag(f);
-  startPlacing(f, '줄에서 이 사진을 널 자리를 탭하세요');
+  startPlacing(f, '줄에서 이 조각을 널 자리를 탭하세요');
 }
 function addSoundFrag(buffer){
-  const el=makeFragEl('sound');
+  const el=makeFragEl('ribbon');
   const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
   el.insertBefore(cv, el.querySelector('.del'));
   drawWaveform(cv, buffer);
@@ -394,15 +418,110 @@ $('btnPhoto').addEventListener('click', ()=>{
 $('fileFrag').addEventListener('change', e=>{
   const file=e.target.files[0]; e.target.value='';
   if(!file) return;
-  shrinkImage(file, 700).then(addPhotoFrag);
+  shrinkImage(file, 900).then(openCutter);
 });
 function captureFromLive(){
   const v=$('bgVideo');
   const c=document.createElement('canvas');
-  const s=Math.min(700/v.videoWidth, 1);
+  const s=Math.min(900/v.videoWidth, 1);
   c.width=v.videoWidth*s; c.height=v.videoHeight*s;
   c.getContext('2d').drawImage(v,0,0,c.width,c.height);
-  addPhotoFrag(c.toDataURL('image/jpeg',0.85));
+  openCutter(c.toDataURL('image/jpeg',0.88));
+}
+
+/* ---------- 오리기 (윤곽 컷) ---------- */
+const cut = { img:null, pts:[], drawing:false };
+const cutCv=$('cutCanvas'), cutCtx=cutCv.getContext('2d');
+
+function openCutter(dataUrl){
+  const img=new Image();
+  img.onload=()=>{
+    cut.img=img; cut.pts=[];
+    // 표시 크기: 화면에 맞춤
+    const maxW=Math.min(innerWidth*0.94, 640), maxH=innerHeight*0.62;
+    const s=Math.min(maxW/img.width, maxH/img.height, 1);
+    cutCv.width=img.width*s; cutCv.height=img.height*s;
+    cutCv.style.width=cutCv.width+'px'; cutCv.style.height=cutCv.height+'px';
+    $('cutOk').disabled=true;
+    drawCutter();
+    $('cutSheet').style.display='flex';
+  };
+  img.src=dataUrl;
+}
+function drawCutter(){
+  cutCtx.clearRect(0,0,cutCv.width,cutCv.height);
+  cutCtx.drawImage(cut.img,0,0,cutCv.width,cutCv.height);
+  if(cut.pts.length>1){
+    cutCtx.save();
+    // 바깥 어둡게
+    if(cut.pts.length>8 && !cut.drawing){
+      cutCtx.fillStyle='rgba(0,0,0,.55)';
+      cutCtx.beginPath();
+      cutCtx.rect(0,0,cutCv.width,cutCv.height);
+      pathFrom(cutCtx, cut.pts); cutCtx.closePath();
+      cutCtx.fill('evenodd');
+    }
+    cutCtx.beginPath(); pathFrom(cutCtx, cut.pts);
+    if(!cut.drawing) cutCtx.closePath();
+    cutCtx.strokeStyle='#ffd97a'; cutCtx.lineWidth=2.5; cutCtx.setLineDash([6,5]);
+    cutCtx.stroke();
+    cutCtx.restore();
+  }
+}
+function pathFrom(c, pts){ c.moveTo(pts[0].x,pts[0].y); for(let i=1;i<pts.length;i++) c.lineTo(pts[i].x,pts[i].y); }
+
+function cutPointer(e){
+  const r=cutCv.getBoundingClientRect();
+  return { x:(e.clientX-r.left)*(cutCv.width/r.width), y:(e.clientY-r.top)*(cutCv.height/r.height) };
+}
+cutCv.addEventListener('pointerdown', e=>{ e.preventDefault();
+  cut.drawing=true; cut.pts=[cutPointer(e)]; cutCv.setPointerCapture(e.pointerId); drawCutter(); });
+cutCv.addEventListener('pointermove', e=>{ if(!cut.drawing) return;
+  const p=cutPointer(e), last=cut.pts[cut.pts.length-1];
+  if(Math.hypot(p.x-last.x,p.y-last.y)>3) cut.pts.push(p);
+  drawCutter(); });
+cutCv.addEventListener('pointerup', ()=>{ cut.drawing=false;
+  $('cutOk').disabled = cut.pts.length<9;
+  drawCutter(); });
+
+$('cutRetry').addEventListener('click', ()=>{ cut.pts=[]; $('cutOk').disabled=true; drawCutter(); });
+$('cutRect').addEventListener('click', ()=>{
+  $('cutSheet').style.display='none';
+  addPhotoFrag(cut.img.src, false);
+});
+$('cutOk').addEventListener('click', ()=>{
+  $('cutSheet').style.display='none';
+  addPhotoFrag(cutoutPng(cut.img, cut.pts, cutCv.width, cutCv.height), true);
+});
+
+function cutoutPng(img, pts, dispW, dispH){
+  const sx=img.width/dispW, sy=img.height/dispH;
+  const P=pts.map(p=>({x:p.x*sx, y:p.y*sy}));
+  // 원본 좌표 bbox (+여백)
+  const pad=Math.max(img.width,img.height)*0.02;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  P.forEach(p=>{ x0=Math.min(x0,p.x); y0=Math.min(y0,p.y); x1=Math.max(x1,p.x); y1=Math.max(y1,p.y); });
+  x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(img.width,x1+pad); y1=Math.min(img.height,y1+pad);
+  const c=document.createElement('canvas');
+  c.width=Math.max(2, x1-x0); c.height=Math.max(2, y1-y0);
+  const g=c.getContext('2d');
+  g.save();
+  g.beginPath();
+  g.moveTo(P[0].x-x0, P[0].y-y0);
+  for(let i=1;i<P.length;i++) g.lineTo(P[i].x-x0, P[i].y-y0);
+  g.closePath();
+  g.clip();
+  g.drawImage(img, -x0, -y0);
+  g.restore();
+  // 스티커 테두리
+  g.beginPath();
+  g.moveTo(P[0].x-x0, P[0].y-y0);
+  for(let i=1;i<P.length;i++) g.lineTo(P[i].x-x0, P[i].y-y0);
+  g.closePath();
+  g.strokeStyle='rgba(250,247,240,.9)';
+  g.lineWidth=Math.max(3, Math.max(c.width,c.height)*0.012);
+  g.stroke();
+  return c.toDataURL('image/png');
 }
 function shrinkImage(file, max){
   return new Promise(res=>{
@@ -458,16 +577,27 @@ $('btnDemo').addEventListener('click', ()=>{
   if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
   demoN++;
   if(demoN%2===1){
-    // 데모 사진: 캔버스 그라디언트
+    // 데모 사진: 불규칙 윤곽으로 오려진 조각
     const c=document.createElement('canvas'); c.width=c.height=300;
     const g=c.getContext('2d');
+    const pts=[]; const N=14;
+    for(let i=0;i<N;i++){
+      const a=i/N*Math.PI*2;
+      const r=105+Math.sin(a*3+demoN)*22+Math.cos(a*5)*12;
+      pts.push({x:150+Math.cos(a)*r, y:150+Math.sin(a)*r*0.85});
+    }
+    g.save(); g.beginPath();
+    g.moveTo(pts[0].x,pts[0].y); pts.forEach(p=>g.lineTo(p.x,p.y)); g.closePath(); g.clip();
     const grad=g.createLinearGradient(0,0,300,300);
     const hues=[[26,'#2b3a67','#e98a5e'],[1,'#494e6b','#98878f'],[2,'#1b2a49','#d0e1f9']][demoN%3];
     grad.addColorStop(0,hues[1]); grad.addColorStop(1,hues[2]);
     g.fillStyle=grad; g.fillRect(0,0,300,300);
-    g.fillStyle='rgba(255,255,255,.85)'; g.font='28px sans-serif';
-    g.fillText('demo #'+demoN, 20, 270);
-    addPhotoFrag(c.toDataURL());
+    g.fillStyle='rgba(255,255,255,.85)'; g.font='26px sans-serif';
+    g.fillText('demo', 110, 165);
+    g.restore();
+    g.beginPath(); g.moveTo(pts[0].x,pts[0].y); pts.forEach(p=>g.lineTo(p.x,p.y)); g.closePath();
+    g.strokeStyle='rgba(250,247,240,.9)'; g.lineWidth=4; g.stroke();
+    addPhotoFrag(c.toDataURL(), true);
   } else {
     // 데모 소리: 합성 버퍼 (새소리 비슷한 처프)
     const ac=ensureAudio(), sr=ac.sampleRate, len=sr*1.2;
