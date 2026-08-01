@@ -165,13 +165,13 @@
     <path d="M8,14 Q150,52 292,20" fill="none" stroke="#ffd97a" stroke-width="2" stroke-dasharray="6 6" opacity=".8"/>
     <circle cx="8" cy="14" r="4" fill="#ffd97a"/><circle cx="292" cy="20" r="4" fill="#ffd97a"/>
   </svg>
-  <h2>빨랫줄은 아직 비어 있습니다</h2>
-  <p>이 줄은 아무도 연주한 적 없는 악보예요.<br>
-     옥상을 돌아다니며 줄에 널 조각들을 찾아오세요.<br><br>
-     📷 눈에 밟히는 것은 <b>찍어서</b><br>
-     🎙 귀에 들리는 것은 <b>녹음해서</b><br>
-     🧺 바구니에 담아 오면 됩니다.</p>
-  <button id="missionGo">찾으러 나가기</button>
+  <h2>흩어진 시간의 조각을 모아 오세요</h2>
+  <p>오래 자리를 지켜온 존재들이 간직한 기억들 —<br>
+     공원의 웃음소리, 낮잠 자는 고양이, 누군가의 하루.<br><br>
+     📷 눈에 밟히는 기억은 <b>찍어서</b><br>
+     🎙 귀에 들리는 기억은 <b>녹음해서</b><br>
+     🧺 바구니에 담아 오세요.</p>
+  <button id="missionGo">조각을 모으러 가기</button>
 </div>
 
 <div id="basketSheet">
@@ -182,8 +182,8 @@
 
 <div id="setup">
   <h1>옥상 악보</h1>
-  <p>옥상을 돌아다니며 사진과 소리를 채집해 바구니에 담고,<br>
-     줄 앞에 돌아와 손가락으로 줄을 따라 그은 뒤 널어 연주하세요.</p>
+  <p>흩어진 시간의 조각을 모아 빨랫줄에 걸면,<br>
+     마르면서 선명해진 기억들이 하나의 노래가 됩니다.</p>
   <button class="primary" id="setupLive">시작하기</button>
   <button id="setupPhoto" style="display:none">🖼 줄 사진으로 시작</button>
   <button id="setupDemo" style="display:none">✨ 데모 이미지로 시작</button>
@@ -410,6 +410,20 @@ function positionFrag(f){
   f.el.style.top=(p.y + 8)+'px';
 }
 function repositionAll(){ state.frags.forEach(positionFrag); }
+/* 마름: 걸린 뒤 2분에 걸쳐 소리와 화면이 선명해진다 */
+const DRY_MS = 120000;
+function dryness(f){
+  if(!f.hungAt) return 0;
+  return Math.min(1, (Date.now()-f.hungAt)/DRY_MS);
+}
+setInterval(()=>{
+  state.frags.forEach(f=>{
+    const d=dryness(f);
+    const inner=f.el.querySelector('img,canvas');
+    if(inner) inner.style.filter = d>=1 ? '' :
+      `blur(${((1-d)*2.2).toFixed(2)}px) saturate(${(0.55+0.45*d).toFixed(2)}) brightness(${(0.85+0.15*d).toFixed(2)})`;
+  });
+}, 2000);
 
 /* 채집 → 빨래바구니 (걸기는 줄 앞에서) */
 function addPhotoFrag(imgSrc, isCut){
@@ -424,7 +438,7 @@ function basketAdd(item){
   state.basket.push(item);
   updateBasket();
   toast('🧺 빨래바구니에 담았습니다 ('+state.basket.length+')');
-  if(state.basket.length===3) hint('넉넉히 모였어요 — 줄 앞으로 가서 🧺 바구니에서 꺼내 널어보세요');
+  if(state.basket.length===3) hint('조각이 모였어요 — 마을이 내려다보이는 곳에서 줄에 걸어주세요');
 }
 function updateBasket(){
   const b=$('basketBadge');
@@ -470,7 +484,7 @@ function beginPlacing(item){
   }
   state.basket=state.basket.filter(x=>x!==item); updateBasket();
   bindFrag(f);
-  startPlacing(f, '조각을 손가락으로 집어 줄까지 끌어 올려 걸어주세요');
+  startPlacing(f, '시간의 조각을 집어 줄까지 끌어 올려 걸어주세요');
 }
 $('btnBasket').addEventListener('click', ()=>{
   const sh=$('basketSheet');
@@ -520,9 +534,12 @@ function startPlacing(f, msg){
     const {t,dist}=nearestT(x,y);
     if(dist<110){
       f.t=t;
+      f.hungAt=Date.now();
       f.el.style.opacity='1';
       f.el.classList.remove('near','pending');
-      state.frags.push(f); state.placing=null; hint('');
+      state.frags.push(f); state.placing=null;
+      hint('빨래가 마르듯, 걸린 조각은 시간이 지날수록 선명해져요');
+      setTimeout(()=>{ if(!state.placing) hint(''); }, 3500);
       positionFrag(f);
       previewFrag(f);
     } else {
@@ -580,8 +597,9 @@ stage.addEventListener('pointercancel', ()=>{ trace.active=false; trace.pts=[]; 
 
 function previewFrag(f){
   ensureAudio();
-  if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 0.8);
-  else playBuffer(f.buffer, rateAt(f.t), 1.0);
+  const d=dryness(f);
+  if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 0.8, d);
+  else playBuffer(f.buffer, rateAt(f.t), 1.0, d);
   ring(f, 900);
 }
 function ring(f, ms){ f.el.classList.add('ringing'); setTimeout(()=>f.el.classList.remove('ringing'), ms); }
@@ -635,14 +653,15 @@ function analyzeImageTimbre(src){
     img.src=src;
   });
 }
-function playImageTone(tb, freq, dur){
+function playImageTone(tb, freq, dur, dry){
+  dry = dry==null ? 1 : dry;
   if(!tb) return playTone(freq, dur);
   const ac=ensureAudio(), t0=ac.currentTime;
   const out=ac.createGain(); out.gain.value=1; out.connect(ac.destination);
   // 파형: 색상으로 결정 (난색=거칠게, 한색=둥글게)
   const wave = tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine');
   const flt=ac.createBiquadFilter(); flt.type='lowpass';
-  flt.frequency.value = 500 + tb.bright*4200;          // 밝을수록 열린 소리
+  flt.frequency.value = (500 + tb.bright*4200) * (0.22+0.78*dry); // 젖은 소리는 먹먹하게
   flt.connect(out);
   const g=ac.createGain(); g.connect(flt);
   g.gain.setValueAtTime(0,t0);
@@ -688,11 +707,20 @@ function rateAt(t){
   const n=(yMax-curvePoint(t).y)/Math.max(1,(yMax-yMin));
   return 0.8 + n*0.5; // 0.8x ~ 1.3x
 }
-function playBuffer(buffer, rate, gain){
+function playBuffer(buffer, rate, gain, dry){
+  dry = dry==null ? 1 : dry;
   const ac=ensureAudio();
   const s=ac.createBufferSource(); s.buffer=buffer; s.playbackRate.value=rate||1;
   const g=ac.createGain(); g.gain.value=gain??1;
-  s.connect(g); g.connect(ac.destination); s.start();
+  s.connect(g);
+  if(dry<0.97){
+    const f=ac.createBiquadFilter(); f.type='lowpass';
+    f.frequency.value = 700 + 8000*dry;
+    g.connect(f); f.connect(ac.destination);
+  } else {
+    g.connect(ac.destination);
+  }
+  s.start();
   return s;
 }
 
@@ -715,14 +743,15 @@ function play(){
     state.frags.forEach(f=>{
       if(!played.has(f.id) && f.t<=t){
         played.add(f.id);
-        if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 1.3);
-        else playBuffer(f.buffer, rateAt(f.t), 1.0);
+        const d=dryness(f);
+        if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 1.3, d);
+        else playBuffer(f.buffer, rateAt(f.t), 1.0, d);
         ring(f, 1200);
       }
     });
     if(t<1){ requestAnimationFrame(step); }
     else { state.playing=false; $('btnPlay').disabled=false; ph.style.display='none';
-           toast('연주가 끝났습니다 — 막이 내립니다'); }
+           toast('기억은 오늘에서 내일로 이어집니다', 4000); }
   })();
 }
 
@@ -944,7 +973,7 @@ $('btnDemo').addEventListener('click', ()=>{
 /* ---------- 미션 인트로 ---------- */
 $('missionGo').addEventListener('click', ()=>{
   $('missionIntro').style.display='none';
-  hint('지금은 채집 시간 — 줄에 널 것들을 찾아 다니세요 🧺');
+  hint('흩어진 시간의 조각을 모으는 중 🧺');
 });
 
 /* ---------- 자이로 토글 ---------- */
