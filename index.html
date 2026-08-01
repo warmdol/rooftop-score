@@ -174,7 +174,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v9</span>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v10</span>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -240,7 +240,7 @@
   <div class="sub" id="noteBase">조각에서 소리를 우려내는 중…</div>
   <div class="row" style="margin-bottom:2px">
     <button id="notePlayBase">▶ 조각의 소리</button>
-    <button id="notePlayMod">▶ 내 문장을 얹은 소리</button>
+    <button id="notePlayMod" class="primary">▶ 문장을 얹은 소리</button>
   </div>
   <input id="noteInput" type="text" maxlength="40" placeholder="예: 누군가가 오래 기다렸던 저녁">
   <div id="noteEcho"></div>
@@ -527,21 +527,29 @@ function pitchOfTimbre(tb){
    문장은 임의의 소리를 만들지 않는다. 이미 조율된 음악 안에서
    그 음의 성격(음역·길이·결·온도·울림)만 바꿀 — 합주는 유지된다. */
 const LEX = [
-  ['oct',  2,    ['높','하늘','가볍','밝','날아','위로','새소리','종소리','별','까치발','꼭대기']],
-  ['oct',  0.5,  ['낮','무거','어둡','깊','땅','가라앉','묻','아래','그림자','두꺼','바닥']],
-  ['dur',  1.9,  ['길게','오래','느리','느릿','머물','천천','지속','남아','기다','잠긴','쌓','한참']],
-  ['dur',  0.45, ['짧','빠르','스치','순간','툭','잠깐','재빨리','확','금세']],
-  ['noise', 0.4, ['거칠','낡','녹슨','녹이','삐걱','시끄','먼지','벗겨','갈라','부서','기침','바스락','우툴']],
-  ['noise', -0.3,['부드럽','조용','고요','잔잔','매끄럽','맑','숨죽','나직']],
-  ['glide', 7,   ['오르','솟','피어','올라','번지','퍼지','자라','떠오','들어올']],
-  ['glide', -5,  ['내리','떨어','지는','스며','잠기','사라지','저물','기울','내려']],
-  ['rep',  3,    ['반복','자꾸','계속','두근','흔들','울리','깜빡','매일','다시','거듭']],
-  ['filt', 0.55, ['따뜻','포근','노을','저녁','이불','솜','불빛','가을','나무','품']],
-  ['filt', 1.7,  ['차갑','서늘','새벽','겨울','쓸쓸','유리','철','금속','콘크리트','시린']],
+  ['oct',  2,    ['높','하늘','가볍','밝','날아','위로','새소리','종소리','별','꼭대기','까치발']],
+  ['oct',  0.5,  ['낮','무거','어둡','깊','땅','가라앉','묻','아래','그림자','두꺼','바닥','굵']],
+  ['dur',  2.6,  ['길게','오래','느리','느릿','머물','천천','지속','남아','기다','잠긴','쌓','한참','늘어']],
+  ['dur',  0.32, ['짧','빠르','스치','순간','툭','잠깐','재빨리','확','금세','탁','딱']],
+  ['noise', 0.65,['거칠','낡','녹슨','녹이','삐걱','시끄','먼지','벗겨','갈라','부서','기침','바스락','우툴','쇳']],
+  ['noise', -0.4,['부드럽','조용','고요','잔잔','매끄럽','맑','숨죽','나직','말갛']],
+  ['glide', 12,  ['오르','솟','피어','올라','번지','퍼지','자라','떠오','들어올','치솟']],
+  ['glide', -10, ['내리','떨어','스며','잠기','사라지','저물','기울','내려','흘러','내려앉']],
+  ['rep',  4,    ['반복','자꾸','계속','두근','흔들','울리','깜빡','매일','다시','거듭','되풀이']],
+  ['filt', 0.32, ['따뜻','포근','노을','저녁','이불','솜','불빛','가을','나무','품','뭉근']],
+  ['filt', 2.6,  ['차갑','서늘','새벽','겨울','쓸쓸','유리','철','금속','콘크리트','시린','날카']],
+  ['atk',  0.5,  ['부드럽','천천','스며','피어','번지','서서히','스르','물들','머금']],
+  ['atk',  0.004,['툭','탁','딱','부딪','터지','치는','때리','튕','쨍','쿵','철컥']],
+  ['space',0.95, ['멀리','텅','울림','메아리','골목','옥상','하늘','광장','비어','아득','저편']],
+  ['space',0.06, ['가까','귓가','코앞','바로 옆','품','손끝','속삭']],
+  ['wave', 'sawtooth', ['거칠','녹슨','쇳','철','금속','기계','엔진','삐걱','날카']],
+  ['wave', 'sine',     ['맑','둥근','부드럽','고요','물','유리알','종']],
+  ['trem', 1,    ['흔들','떨','일렁','파도','나부','펄럭','바르르','아른']],
 ];
 function hashStr(t){ let h=2166136261; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0)/4294967295; }
 function readSentence(text){
-  const m={ oct:1, durMul:1, noiseAdd:0, glide:0, repeats:1, filtMul:1, seed:0, text:(text||'').trim() };
+  const m={ oct:1, durMul:1, noiseAdd:0, glide:0, repeats:1, filtMul:1,
+            attack:null, space:null, wave:null, trem:0, seed:0, text:(text||'').trim() };
   if(!m.text) return m;
   const t=m.text;
   LEX.forEach(([key,val,words])=>{
@@ -552,9 +560,13 @@ function readSentence(text){
     if(key==='glide') m.glide=val;
     if(key==='rep')   m.repeats=val;
     if(key==='filt')  m.filtMul=val;
+    if(key==='atk')   m.attack=val;
+    if(key==='space') m.space=val;
+    if(key==='wave')  m.wave=val;
+    if(key==='trem')  m.trem=val;
   });
   m.seed=hashStr(t);
-  m.durMul *= 0.9 + m.seed*0.35;      // 문장마다 고유한 미세한 개성
+  m.durMul *= 0.9 + m.seed*0.35;
   m.filtMul *= 0.85 + m.seed*0.4;
   return m;
 }
@@ -567,6 +579,10 @@ function describeMod(m){
   if(m.glide>0) out.push('올라가게'); else if(m.glide<0) out.push('내려가게');
   if(m.repeats>1) out.push('여러 번');
   if(m.filtMul>1.3) out.push('차갑게'); else if(m.filtMul<0.75) out.push('따뜻하게');
+  if(m.attack!=null) out.push(m.attack>0.2 ? '천천히 번지며' : '툭 치듯');
+  if(m.space!=null) out.push(m.space>0.5 ? '멀리 울리며' : '바로 곁에서');
+  if(m.wave==='sawtooth') out.push('쇳소리로'); else if(m.wave==='sine') out.push('맑은 소리로');
+  if(m.trem) out.push('일렁이며');
   return out.length ? '→ '+out.join(' · ')+' 울려요' : '';
 }
 
@@ -627,7 +643,7 @@ function notePreview(useText){
     pitch: item.pitch || pitchOfTimbre(item.timbre),   // 조각이 가진 음
     rate: 1,
   };
-  playFrag(dummy, null, 1, 1.1);
+  playFrag(dummy, null, 1, 1.35);
 }
 function closeNote(withText){
   const item=notePending; notePending=null;
@@ -907,16 +923,23 @@ function playImageTone(tb, freq, dur, dry, at, mod, gainMul){
   if(!tb) return playTone(freq, dur, at);
   const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
   const out=ac.createGain(); out.gain.value=(gainMul==null?1:gainMul);
-  routeNote(out);
+  routeNote(out, m.space);
   // 파형: 색상으로 결정 (난색=거칠게, 한색=둥글게)
-  const wave = tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine');
+  const wave = m.wave || (tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine'));
   const flt=ac.createBiquadFilter(); flt.type='lowpass';
   flt.frequency.value = (500 + tb.bright*4200) * (0.22+0.78*dry) * (m.filtMul||1); // 젖은 소리는 먹먹하게
   flt.connect(out);
   const g=ac.createGain(); g.connect(flt);
-  g.gain.setValueAtTime(0,t0);
-  g.gain.linearRampToValueAtTime(0.42,t0+0.02);
-  g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  const atk = (m.attack==null) ? 0.02 : m.attack;
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.linearRampToValueAtTime(0.46, t0+Math.min(atk, dur*0.8));
+  g.gain.exponentialRampToValueAtTime(0.001, t0+dur);
+  if(m.trem){                       // 일렁임 — 음량이 파도친다
+    const tl=ac.createOscillator(), tg=ac.createGain();
+    tl.frequency.value=5.5; tg.gain.value=0.42;
+    tl.connect(tg); tg.connect(g.gain);
+    tl.start(t0); tl.stop(t0+dur+0.2);
+  }
   const o1=ac.createOscillator(); o1.type=wave; o1.frequency.value=freq; o1.connect(g);
   const o2=ac.createOscillator(); o2.type=wave; o2.frequency.value=freq;
   o2.detune.value = 4 + tb.sat*22;                      // 채도 → 디튠 두께
@@ -935,7 +958,7 @@ function playImageTone(tb, freq, dur, dry, at, mod, gainMul){
     const len=ac.sampleRate*dur, nb=ac.createBuffer(1,len,ac.sampleRate), nd=nb.getChannelData(0);
     for(let i=0;i<len;i++) nd[i]=(Math.random()*2-1)*Math.exp(-i/len*4);
     const ns=ac.createBufferSource(); ns.buffer=nb;
-    const ng=ac.createGain(); ng.gain.value=texAmt*0.16;
+    const ng=ac.createGain(); ng.gain.value=texAmt*0.38;
     const nf=ac.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=freq*2.5;
     ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t0);
   }
@@ -1018,10 +1041,11 @@ function playTone(freq, dur, at){
   o.start(t0); o2.start(t0); o.stop(t0+dur+2.5); o2.stop(t0+dur+2.5);
 }
 /* 음표 공통 라우팅: 마스터버스 + 리버브 + 박자 동기 에코 */
-function routeNote(node){
+function routeNote(node, space){
   const ac=ensureAudio();
+  const sp = (space==null) ? 0.5 : space;
   node.connect(outBus());
-  verbSend(node, 0.5);
+  verbSend(node, sp);
   const dly=ac.createDelay(2); dly.delayTime.value=GRID*3;   // 점박자 에코
   const fb=ac.createGain(); fb.gain.value=0.3;
   const wet=ac.createGain(); wet.gain.value=0.22;
