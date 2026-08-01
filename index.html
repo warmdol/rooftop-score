@@ -125,6 +125,25 @@
   #noteSheet button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
   #noteSheet button:active, #noteSheet button.pressed { background:#3a4054; transform:scale(.96); }
   #noteEcho { font-size:11.5px; color:var(--accent); min-height:16px; text-align:center; }
+  #setSheet { position:fixed; inset:0; z-index:57; background:rgba(8,9,13,.97); display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:28px; }
+  #setSheet h3 { font-size:15px; font-weight:700; }
+  #setSheet .note { font-size:11.5px; color:var(--dim); line-height:1.7; max-width:330px; text-align:center; }
+  #setSheet input { width:min(340px,88vw); padding:12px 13px; border-radius:11px; font-size:13px;
+    border:1px solid rgba(255,255,255,.25); background:#0f1118; color:var(--ink); }
+  #setSheet .row { display:flex; gap:8px; }
+  #setSheet button { padding:12px 20px; border-radius:13px; font-size:14px;
+    border:1px solid rgba(255,255,255,.22); background:#1b1e27; color:var(--ink); }
+  #setSheet button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
+  #btnSettings { width:32px; height:32px; border-radius:9px; font-size:14px;
+    border:1px solid rgba(255,255,255,.2); background:rgba(24,26,34,.7); margin-left:auto; }
+  #noteChips { display:flex; flex-wrap:wrap; gap:5px; justify-content:center;
+    width:min(360px,92vw); }
+  .chip { font-size:10.5px; padding:4px 8px; border-radius:9px; line-height:1.2;
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.05); color:var(--dim); }
+  .chip b { font-weight:700; color:var(--ink); }
+  .chip.on { border-color:var(--accent); background:rgba(255,217,122,.14); color:var(--accent); }
+  .chip.on b { color:var(--accent); }
 
   /* 조각에 달린 문장 — 빨래에 달린 이름표 */
   .frag .note { display:block; max-width:132px; margin:3px auto 0; font-size:9.5px; line-height:1.35;
@@ -174,7 +193,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v11</span>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v13</span><button id="btnSettings" title="AI 설정">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -234,6 +253,18 @@
   </div>
 </div>
 
+<div id="setSheet">
+  <h3>✨ AI 사운드 변환</h3>
+  <div class="note">Anthropic API 키를 넣으면, 쓴 문장이 <b>그대로 프롬프트가 되어</b>
+    AI가 그 조각만의 음향 레시피(배음·울림·필터 움직임·리듬)를 만들어 줍니다.<br>
+    키는 이 기기에만 저장되고 어디에도 전송되지 않아요. 없으면 기기 안에서 도는 방식으로 동작합니다.</div>
+  <input id="setAkey" type="password" placeholder="sk-ant-..." autocomplete="off">
+  <div class="row">
+    <button id="setClose">닫기</button>
+    <button id="setSave" class="primary">저장</button>
+  </div>
+</div>
+
 <div id="noteSheet">
   <div class="thumb" id="noteThumb"></div>
   <h3 id="noteTitle">이 조각을 한 문장으로 받아 적어주세요</h3>
@@ -241,8 +272,10 @@
   <div class="row" style="margin-bottom:2px">
     <button id="notePlayBase">▶ 조각의 소리</button>
     <button id="notePlayMod" class="primary">▶ 문장을 얹은 소리</button>
+    <button id="noteAi" style="display:none">✨ AI로 만들기</button>
   </div>
   <input id="noteInput" type="text" maxlength="40" placeholder="어떤 문장이든 좋아요">
+  <div id="noteChips"></div>
   <div id="noteEcho"></div>
   <div class="sub" style="font-size:10.5px; opacity:.65">소리가 안 들리면 기기 무음 모드를 확인해주세요</div>
   <div class="row">
@@ -629,8 +662,240 @@ function readSentence(text){
   m.seed=hashStr(t);
   m.durMul *= 0.92 + m.seed*0.2;
   m.filtMul *= 0.9 + m.seed*0.25;
+  return quantize(m);
+}
+/* 화면에 보이는 단계와 실제 소리를 일치시키기 위해 값을 단계로 끊는다 */
+function snapTo(v, steps){
+  let best=steps[0];
+  steps.forEach(x=>{ if(Math.abs(x-v)<Math.abs(best-v)) best=x; });
+  return best;
+}
+function quantize(m){
+  m.stepShift = Math.max(-2, Math.min(2, Math.round(m.stepShift||0)));
+  m.durMul   = snapTo(m.durMul,  [0.45, 0.75, 1.1, 1.7, 2.5]);
+  m.noiseAdd = snapTo(m.noiseAdd,[-0.35, 0, 0.3, 0.65]);
+  m.filtMul  = snapTo(m.filtMul, [0.35, 0.6, 1, 1.6, 2.4]);
+  m.attack   = snapTo(m.attack==null?0.05:m.attack, [0.005, 0.05, 0.35]);
+  m.space    = snapTo(m.space==null?0.45:m.space,   [0.12, 0.45, 0.9]);
+  m.repeats  = Math.max(1, Math.min(4, Math.round(m.repeats||1)));
   return m;
 }
+/* ---------- AI 사운드 변환: 문장이 곧 프롬프트 ----------
+   Claude가 사진과 문장을 읽고 음향 레시피(JSON)를 만들면, 브라우저가 그대로 합성한다.
+   음높이는 우리가 음계 안으로 스냅하므로 어떤 레시피가 와도 합주는 유지된다. */
+const AI_KEY = {
+  get(){ return localStorage.getItem('okj_akey')||''; },
+  set(v){ localStorage.setItem('okj_akey', v); },
+  has(){ return !!this.get(); },
+};
+$('btnSettings').addEventListener('click', ()=>{
+  $('setAkey').value = AI_KEY.get();
+  $('setSheet').style.display='flex';
+});
+$('setClose').addEventListener('click', ()=>{ $('setSheet').style.display='none'; });
+$('setSave').addEventListener('click', ()=>{
+  AI_KEY.set($('setAkey').value.trim());
+  $('setSheet').style.display='none';
+  toast(AI_KEY.has() ? '✨ AI 사운드 변환이 켜졌습니다' : '기기 안에서 도는 방식으로 동작합니다');
+});
+
+const RECIPE_SCHEMA = {
+  type:'object',
+  properties:{
+    voice:{type:'string', description:'음색 원형: bell, string, breath, metal, wood, water, drone, pluck, choir 중 하나'},
+    partials:{type:'array', description:'배음 구조 (최대 6개)',
+      items:{type:'object', properties:{
+        ratio:{type:'number', description:'기본음 대비 배수 0.25~12'},
+        gain:{type:'number', description:'0~1'}},
+        required:['ratio','gain'], additionalProperties:false}},
+    envelope:{type:'object', properties:{
+      attack:{type:'number'}, decay:{type:'number'}, sustain:{type:'number'}, release:{type:'number'}},
+      required:['attack','decay','sustain','release'], additionalProperties:false},
+    filter:{type:'object', properties:{
+      type:{type:'string', description:'lowpass, highpass, bandpass 중 하나'},
+      cutoff:{type:'number', description:'120~16000'},
+      q:{type:'number', description:'0.1~18'},
+      sweepTo:{type:'number', description:'스윕 목표 주파수, 없으면 cutoff와 같게'},
+      sweepTime:{type:'number'}},
+      required:['type','cutoff','q','sweepTo','sweepTime'], additionalProperties:false},
+    noise:{type:'object', properties:{
+      amount:{type:'number', description:'0~1'},
+      bright:{type:'number', description:'노이즈 밝기 0~1'},
+      burst:{type:'boolean', description:'시작에만 짧게 터지는지'}},
+      required:['amount','bright','burst'], additionalProperties:false},
+    vibrato:{type:'object', properties:{rate:{type:'number'}, depth:{type:'number', description:'0~0.08'}},
+      required:['rate','depth'], additionalProperties:false},
+    tremolo:{type:'object', properties:{rate:{type:'number'}, depth:{type:'number', description:'0~1'}},
+      required:['rate','depth'], additionalProperties:false},
+    pitchOffset:{type:'integer', description:'음계 계단 이동 -4~4'},
+    glideSteps:{type:'integer', description:'울리는 동안 오르내림 -6~6 계단'},
+    hits:{type:'integer', description:'몇 번 울릴지 1~5'},
+    hitSpacing:{type:'number', description:'울림 간격, 8분음표의 배수 0.5~4'},
+    space:{type:'number', description:'공간감 0~1'},
+    duration:{type:'number', description:'울림 길이(초) 0.3~4'},
+    why:{type:'string', description:'왜 이렇게 만들었는지 한국어 한 문장 (25자 이내)'},
+  },
+  required:['voice','partials','envelope','filter','noise','vibrato','tremolo',
+            'pitchOffset','glideSteps','hits','hitSpacing','space','duration','why'],
+  additionalProperties:false,
+};
+
+async function aiRecipe(imgDataUrl, sentence){
+  const key=AI_KEY.get();
+  if(!key) throw new Error('no key');
+  const content=[];
+  const m = imgDataUrl && imgDataUrl.match(/^data:(image\/\w+);base64,(.+)$/s);
+  if(m) content.push({type:'image', source:{type:'base64', media_type:m[1], data:m[2]}});
+  content.push({type:'text', text:
+    '이 조각은 산책 중 채집한 시간의 조각입니다. 채집한 사람이 남긴 문장은 다음과 같습니다.\n\n'
+    + '「' + sentence + '」\n\n'
+    + '이 문장과 (있다면) 이미지를 함께 읽고, 이 조각이 낼 소리의 음향 레시피를 만들어 주세요. '
+    + '문장의 뜻과 어감이 소리에 분명히 드러나야 합니다. 실제 효과음 흉내가 아니라 '
+    + '한 음으로 울리는 악기의 성격을 설계하는 일입니다. 음높이는 시스템이 음계에 맞추므로 '
+    + 'pitchOffset은 계단 수만 정하면 됩니다.'});
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key': key,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true',
+    },
+    body: JSON.stringify({
+      model:'claude-opus-5',
+      max_tokens:1500,
+      output_config:{ format:{type:'json_schema', schema:RECIPE_SCHEMA}, effort:'low' },
+      messages:[{role:'user', content}],
+    }),
+  });
+  if(!res.ok) throw new Error('api '+res.status);
+  const j = await res.json();
+  if(j.stop_reason==='refusal') throw new Error('refusal');
+  const t=(j.content||[]).find(b=>b.type==='text');
+  if(!t) throw new Error('empty');
+  return JSON.parse(t.text);
+}
+
+/* ---------- 레시피를 소리로 ---------- */
+const clamp=(v,a,b)=>Math.max(a, Math.min(b, isFinite(v)?v:a));
+function waveForVoice(v){
+  return {bell:'sine', string:'sawtooth', breath:'sine', metal:'square', wood:'triangle',
+          water:'sine', drone:'sawtooth', pluck:'triangle', choir:'sine'}[v] || 'triangle';
+}
+function playRecipe(r, baseFreq, at, dry, gainMul){
+  const ac=ensureAudio(), t0=(at!=null?at:ac.currentTime);
+  dry = dry==null?1:dry;
+  const freq = shiftPitch(baseFreq, clamp(Math.round(r.pitchOffset||0), -4, 4));
+  const dur  = clamp(r.duration, 0.3, 4);
+  const rel  = clamp(r.envelope && r.envelope.release, 0.05, 3);
+  const out=ac.createGain(); out.gain.value=(gainMul==null?1:gainMul);
+  routeNote(out, clamp(r.space, 0, 1));
+
+  const flt=ac.createBiquadFilter();
+  const ft=(r.filter&&r.filter.type)||'lowpass';
+  flt.type=['lowpass','highpass','bandpass'].indexOf(ft)>=0?ft:'lowpass';
+  const c0=clamp(r.filter&&r.filter.cutoff, 120, 16000)*(0.35+0.65*dry);
+  flt.frequency.setValueAtTime(c0, t0);
+  const cTo=clamp(r.filter&&r.filter.sweepTo, 120, 16000)*(0.35+0.65*dry);
+  if(Math.abs(cTo-c0)>40)
+    flt.frequency.exponentialRampToValueAtTime(cTo, t0+clamp(r.filter&&r.filter.sweepTime, 0.05, dur));
+  flt.Q.value=clamp(r.filter&&r.filter.q, 0.1, 18);
+  flt.connect(out);
+
+  const g=ac.createGain(); g.connect(flt);
+  const env=r.envelope||{};
+  const A=clamp(env.attack, 0.002, dur*0.8), D=clamp(env.decay, 0.01, dur),
+        S=clamp(env.sustain, 0.02, 1);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(0.5, t0+A);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.002, 0.5*S), t0+A+D);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur+rel);
+
+  const parts=(Array.isArray(r.partials)&&r.partials.length?r.partials:[{ratio:1,gain:1}]).slice(0,6);
+  const wave=waveForVoice(r.voice);
+  const glide=clamp(Math.round(r.glideSteps||0), -6, 6);
+  const target=glide? shiftPitch(freq, glide) : null;
+  const oscs=[];
+  parts.forEach(pp=>{
+    const o=ac.createOscillator(); o.type=wave;
+    const f=freq*clamp(pp.ratio, 0.25, 12);
+    o.frequency.setValueAtTime(f, t0);
+    if(target) o.frequency.exponentialRampToValueAtTime(f*(target/freq), t0+dur*0.85);
+    const pg=ac.createGain(); pg.gain.value=clamp(pp.gain,0,1)/Math.sqrt(parts.length);
+    o.connect(pg); pg.connect(g);
+    o.start(t0); o.stop(t0+dur+rel+0.2);
+    oscs.push(o);
+  });
+
+  const vib=r.vibrato||{};
+  if(clamp(vib.depth,0,0.08)>0.002){
+    const lo=ac.createOscillator(), lg=ac.createGain();
+    lo.frequency.value=clamp(vib.rate,0.5,12); lg.gain.value=freq*clamp(vib.depth,0,0.08);
+    lo.connect(lg); oscs.forEach(o=>lg.connect(o.frequency));
+    lo.start(t0); lo.stop(t0+dur+rel);
+  }
+  const tre=r.tremolo||{};
+  if(clamp(tre.depth,0,1)>0.03){
+    const lo=ac.createOscillator(), lg=ac.createGain();
+    lo.frequency.value=clamp(tre.rate,0.3,14); lg.gain.value=0.45*clamp(tre.depth,0,1);
+    lo.connect(lg); lg.connect(g.gain);
+    lo.start(t0); lo.stop(t0+dur+rel);
+  }
+  const nz=r.noise||{};
+  if(clamp(nz.amount,0,1)>0.02){
+    const len=Math.floor(ac.sampleRate*(nz.burst?Math.min(0.25,dur):dur));
+    const nb=ac.createBuffer(1,Math.max(64,len),ac.sampleRate), nd=nb.getChannelData(0);
+    for(let i=0;i<nd.length;i++) nd[i]=(Math.random()*2-1)*Math.exp(-i/nd.length*(nz.burst?7:2.5));
+    const ns=ac.createBufferSource(); ns.buffer=nb;
+    const nf=ac.createBiquadFilter(); nf.type='bandpass';
+    nf.frequency.value=clamp(300+clamp(nz.bright,0,1)*6000, 200, 12000); nf.Q.value=0.8;
+    const ng=ac.createGain(); ng.gain.value=clamp(nz.amount,0,1)*0.3;
+    ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t0);
+  }
+}
+
+/* 여섯 축을 항상 보여준다 — 무엇을 써도 반영되는 게 눈에 보이도록 */
+function modChips(m){
+  const lv = (v, steps, names)=>{
+    let i=0, best=1e9;
+    steps.forEach((x,k)=>{ const d=Math.abs(x-v); if(d<best){ best=d; i=k; } });
+    return {name:names[i], i};
+  };
+  // 옥타브(사전)와 계단 이동(말소리)을 합쳐 하나의 음높이로 보여준다
+  const pScore = (m.oct===2?2:m.oct===0.5?-2:0) + (m.stepShift||0)*0.5;
+  const pitch = pScore>=2 ? '아주 높게' : pScore>=0.7 ? '높게'
+              : pScore<=-2 ? '아주 낮게' : pScore<=-0.7 ? '낮게' : '그대로';
+  const glide = m.glide>0 ? '올라감' : m.glide<0 ? '내려감' : '없음';
+  const dur   = lv(m.durMul,  [0.45,0.75,1.1,1.7,2.5], ['아주 짧게','짧게','보통','길게','아주 길게']);
+  const grain = lv(m.noiseAdd,[-0.35,0,0.3,0.65],      ['맑게','보통','거칠게','아주 거칠게']);
+  const temp  = lv(m.filtMul, [0.35,0.6,1,1.6,2.4],    ['아주 따뜻','따뜻','보통','차갑','아주 차갑']);
+  const atk   = lv(m.attack==null?0.05:m.attack, [0.005,0.05,0.35], ['툭 치듯','보통','번지듯']);
+  const spc   = lv(m.space==null?0.45:m.space,   [0.12,0.45,0.9],   ['바로 곁','보통','멀리']);
+  const wave  = m.wave==='sawtooth' ? '쇳소리' : m.wave==='sine' ? '맑은소리' : '조각 그대로';
+  return [
+    ['음높이', pitch,        pScore!==0],
+    ['오르내림', glide,      !!m.glide],
+    ['길이',   dur.name,     dur.i!==2],
+    ['결',     grain.name,   grain.i!==1],
+    ['온도',   temp.name,    temp.i!==2],
+    ['시작',   atk.name,     atk.i!==1],
+    ['공간',   spc.name,     spc.i!==1],
+    ['울림',   (m.repeats||1)+'번', (m.repeats||1)>1],
+    ['음색',   wave,         !!m.wave],
+    ['일렁임', m.trem?'있음':'없음', !!m.trem],
+  ];
+}
+function renderChips(m){
+  const box=$('noteChips');
+  box.innerHTML='';
+  modChips(m).forEach(([label, val, on])=>{
+    const d=document.createElement('span');
+    d.className='chip'+(on?' on':'');
+    d.innerHTML=label+' <b>'+val+'</b>';
+    box.appendChild(d);
+  });
+}
+
 /* 문장이 소리를 어떻게 바꾸는지 사람 말로 */
 function describeMod(m){
   const out=[];
@@ -664,6 +929,9 @@ function askNote(item){
     : '이 소리를 한 문장으로 받아 적어주세요';
   $('noteInput').value='';
   $('noteEcho').textContent='문장을 적으면 소리가 그쪽으로 기울어요';
+  renderChips(readSentence(''));
+  $('noteAi').style.display = AI_KEY.has() ? '' : 'none';
+  notePending.recipe = null;
   const nb=$('noteBase');
   if(item.kind==='photo'){
     nb.textContent = describeTimbre(item.timbre, item.pitch);
@@ -679,9 +947,51 @@ function askNote(item){
   $('noteSheet').style.display='flex';
   setTimeout(()=>$('noteInput').focus(), 60);
 }
+/* 문장을 프롬프트로 삼아 AI가 이 조각의 음향 레시피를 만든다 */
+let aiBusy=false;
+async function makeAiSound(){
+  if(!notePending || aiBusy) return;
+  const item=notePending;
+  const text=$('noteInput').value.trim();
+  if(!text){ toast('먼저 문장을 적어주세요'); return; }
+  aiBusy=true;
+  const btn=$('noteAi'); btn.disabled=true; btn.textContent='✨ 우려내는 중…';
+  $('noteEcho').textContent='문장을 읽고 소리를 짓는 중이에요…';
+  try{
+    const r = await aiRecipe(item.kind==='photo'?item.img:null, text);
+    item.recipe = r;
+    item.note = text;
+    item.mod = readSentence(text);
+    unlockAudio(); ensureMaster();
+    playFrag({kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer,
+              mod:item.mod, recipe:r,
+              pitch:item.pitch||pitchOfTimbre(item.timbre), rate:1}, null, 1, 1.3);
+    $('noteEcho').textContent = '✨ ' + (r.why||'문장대로 소리를 지었어요');
+    renderChips(item.mod);
+  }catch(err){
+    const msg = String(err.message||err);
+    $('noteEcho').textContent = msg.indexOf('api 401')>=0 ? 'API 키를 확인해주세요 (⚙️)'
+      : msg.indexOf('no key')>=0 ? '⚙️에서 API 키를 넣으면 AI가 문장을 해석해요'
+      : 'AI 연결에 실패했어요 — 기기 안 방식으로 들려드릴게요';
+    notePreview(true);
+  }
+  aiBusy=false; btn.disabled=false; btn.textContent='✨ AI로 만들기';
+}
+
+let noteTypeTimer=null;
 $('noteInput').addEventListener('input', e=>{
   const m=readSentence(e.target.value);
-  $('noteEcho').textContent = describeMod(m) || '문장을 적으면 소리가 그쪽으로 기울어요';
+  if(notePending) notePending.recipe=null;
+  renderChips(m);
+  $('noteEcho').textContent = e.target.value.trim()
+    ? '적는 대로 소리가 바뀌어요 — 잠시 멈추면 들려드릴게요'
+    : '문장을 적으면 소리가 그쪽으로 기울어요';
+  clearTimeout(noteTypeTimer);
+  if(e.target.value.trim()){
+    noteTypeTimer=setTimeout(()=>{
+      if(notePending && $('noteSheet').style.display==='flex') notePreview(true);
+    }, 800);
+  }
 });
 /* 이미지가 만든 기본 소리를 사람 말로 */
 function describeTimbre(tb, pitch){
@@ -729,6 +1039,11 @@ function closeNote(withText){
   const txt = withText ? $('noteInput').value.trim() : '';
   item.note = txt;
   item.mod  = readSentence(txt);
+  if(txt && AI_KEY.has() && !item.recipe){
+    aiRecipe(item.kind==='photo'?item.img:null, txt)
+      .then(r=>{ item.recipe=r; updateBasket(); })
+      .catch(()=>{});
+  }
   basketAdd(item);
 }
 $('noteSheet').addEventListener('pointerdown', e=>{
@@ -739,7 +1054,8 @@ $('noteSheet').addEventListener('pointerdown', e=>{
   if(b.id==='noteOk') closeNote(true);
   else if(b.id==='noteSkip') closeNote(false);
   else if(b.id==='notePlayBase') notePreview(false);
-  else if(b.id==='notePlayMod') notePreview(true);
+  else if(b.id==='notePlayMod'){ if(AI_KEY.has() && !notePending.recipe) makeAiSound(); else notePreview(true); }
+  else if(b.id==='noteAi') makeAiSound();
 }, true);
 $('noteInput').addEventListener('keydown', e=>{ if(e.key==='Enter') closeNote(true); });
 
@@ -793,14 +1109,14 @@ function beginPlacing(item){
     const el=makeFragEl(item.cut?'cutout':'polaroid');
     const img=document.createElement('img'); img.src=item.img; el.insertBefore(img, el.querySelector('.del'));
     f={id:++fragSeq, kind:'photo', t:null, el, img:item.img, timbre:item.timbre,
-       pitch:item.pitch||pitchOfTimbre(item.timbre),
+       pitch:item.pitch||pitchOfTimbre(item.timbre), recipe:item.recipe||null,
        note:item.note||'', mod:item.mod||readSentence('')};
   } else {
     const el=makeFragEl('ribbon');
     const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
     el.insertBefore(cv, el.querySelector('.del'));
     drawWaveform(cv, item.buffer);
-    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer, rate:1,
+    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer, rate:1, recipe:item.recipe||null,
        note:item.note||'', mod:item.mod||readSentence('')};
   }
   if(f.note){
@@ -930,6 +1246,14 @@ function playFrag(f, at, dry, baseDur){
   const ac=ensureAudio();
   const m=f.mod||readSentence('');
   const t0 = at!=null ? at : ac.currentTime;
+  // AI 레시피가 있으면 그것이 이 조각의 소리다
+  if(f.recipe){
+    const hits=Math.max(1, Math.min(5, Math.round(f.recipe.hits||1)));
+    const sp=Math.max(0.5, Math.min(4, f.recipe.hitSpacing||1));
+    const base=(f.pitch!=null)?f.pitch:(ready()&&f.t!=null?pitchAt(f.t):BASE_FREQ*Math.pow(2,PENTA[4]/12));
+    for(let i=0;i<hits;i++) playRecipe(f.recipe, base, t0+i*GRID*sp, dry, 1/(1+i*0.7));
+    return;
+  }
   const n = Math.max(1, Math.min(3, m.repeats||1));
   // 줄이 아직 없을 때(문장 쓰기 미리듣기 등)는 기준음으로 대신 울린다
   const freq = (f.pitch!=null) ? f.pitch : (ready() && f.t!=null ? pitchAt(f.t) : BASE_FREQ*Math.pow(2, PENTA[4]/12));
