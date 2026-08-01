@@ -103,6 +103,31 @@
   #missionIntro button { padding:15px 30px; border-radius:16px; font-size:15px; font-weight:700;
     border:none; background:var(--accent); color:#1a1508; }
 
+  /* ---------- 한 문장 쓰기 ---------- */
+  #noteSheet { position:fixed; inset:0; z-index:56; background:rgba(8,9,13,.96); display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:26px; }
+  #noteSheet .thumb { width:132px; height:132px; border-radius:10px; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; background:#1a1d26; }
+  #noteSheet .thumb img { max-width:100%; max-height:100%; object-fit:contain; }
+  #noteSheet .thumb canvas { width:100%; height:60%; }
+  #noteSheet h3 { font-size:15px; font-weight:700; text-align:center; }
+  #noteSheet .sub { font-size:12px; color:var(--dim); text-align:center; line-height:1.7; max-width:320px; }
+  #noteInput { width:min(340px,88vw); padding:13px 14px; border-radius:12px; font-size:15px;
+    border:1px solid rgba(255,255,255,.25); background:#0f1118; color:var(--ink); text-align:center; }
+  #noteInput::placeholder { color:#5f6472; }
+  #noteSheet .row { display:flex; gap:8px; }
+  #noteSheet button { padding:12px 20px; border-radius:13px; font-size:14px;
+    border:1px solid rgba(255,255,255,.22); background:#1b1e27; color:var(--ink);
+    touch-action:manipulation; }
+  #noteSheet button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
+  #noteSheet button:active, #noteSheet button.pressed { background:#3a4054; transform:scale(.96); }
+  #noteEcho { font-size:11.5px; color:var(--accent); min-height:16px; text-align:center; }
+
+  /* 조각에 달린 문장 — 빨래에 달린 이름표 */
+  .frag .note { display:block; max-width:132px; margin:3px auto 0; font-size:9.5px; line-height:1.35;
+    color:#2b2721; text-align:center; word-break:keep-all; }
+  .frag.ribbon .note, .frag.cutout .note { color:#f2efe9; text-shadow:0 1px 3px rgba(0,0,0,.8); }
+
   /* ---------- record sheet ---------- */
   #recSheet { position:fixed; left:0; right:0; bottom:0; z-index:50; display:none;
     background:#15171f; border-radius:20px 20px 0 0; padding:22px 20px 30px; text-align:center; }
@@ -197,6 +222,22 @@
     <button id="cutRetry">↺ 다시</button>
     <button id="cutRect">사각형 그대로</button>
     <button id="cutOk" class="primary" disabled>✂ 오려 널기</button>
+  </div>
+</div>
+
+<div id="noteSheet">
+  <div class="thumb" id="noteThumb"></div>
+  <h3 id="noteTitle">이 조각을 한 문장으로 받아 적어주세요</h3>
+  <div class="sub" id="noteBase">조각에서 소리를 우려내는 중…</div>
+  <div class="row" style="margin-bottom:2px">
+    <button id="notePlayBase">▶ 조각의 소리</button>
+    <button id="notePlayMod">▶ 내 문장을 얹은 소리</button>
+  </div>
+  <input id="noteInput" type="text" maxlength="40" placeholder="예: 누군가가 오래 기다렸던 저녁">
+  <div id="noteEcho"></div>
+  <div class="row">
+    <button id="noteSkip">그냥 담기</button>
+    <button id="noteOk" class="primary">적어서 담기</button>
   </div>
 </div>
 
@@ -425,14 +466,135 @@ setInterval(()=>{
   });
 }, 2000);
 
-/* 채집 → 빨래바구니 (걸기는 줄 앞에서) */
-function addPhotoFrag(imgSrc, isCut){
-  const item={kind:'photo', img:imgSrc, cut:!!isCut, timbre:null};
-  analyzeImageTimbre(imgSrc).then(tb=>{ item.timbre=tb; });
+/* ---------- 한 문장 → 소리 변조 ----------
+   문장은 임의의 소리를 만들지 않는다. 이미 조율된 음악 안에서
+   그 음의 성격(음역·길이·결·온도·울림)만 바꿀 — 합주는 유지된다. */
+const LEX = [
+  ['oct',  2,    ['높','하늘','가볍','밝','날아','위로','새소리','종소리','별','까치발','꼭대기']],
+  ['oct',  0.5,  ['낮','무거','어둡','깊','땅','가라앉','묻','아래','그림자','두꺼','바닥']],
+  ['dur',  1.9,  ['길게','오래','느리','느릿','머물','천천','지속','남아','기다','잠긴','쌓','한참']],
+  ['dur',  0.45, ['짧','빠르','스치','순간','툭','잠깐','재빨리','확','금세']],
+  ['noise', 0.4, ['거칠','낡','녹슨','녹이','삐걱','시끄','먼지','벗겨','갈라','부서','기침','바스락','우툴']],
+  ['noise', -0.3,['부드럽','조용','고요','잔잔','매끄럽','맑','숨죽','나직']],
+  ['glide', 7,   ['오르','솟','피어','올라','번지','퍼지','자라','떠오','들어올']],
+  ['glide', -5,  ['내리','떨어','지는','스며','잠기','사라지','저물','기울','내려']],
+  ['rep',  3,    ['반복','자꾸','계속','두근','흔들','울리','깜빡','매일','다시','거듭']],
+  ['filt', 0.55, ['따뜻','포근','노을','저녁','이불','솜','불빛','가을','나무','품']],
+  ['filt', 1.7,  ['차갑','서늘','새벽','겨울','쓸쓸','유리','철','금속','콘크리트','시린']],
+];
+function hashStr(t){ let h=2166136261; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0)/4294967295; }
+function readSentence(text){
+  const m={ oct:1, durMul:1, noiseAdd:0, glide:0, repeats:1, filtMul:1, seed:0, text:(text||'').trim() };
+  if(!m.text) return m;
+  const t=m.text;
+  LEX.forEach(([key,val,words])=>{
+    if(!words.some(w=>t.indexOf(w)>=0)) return;
+    if(key==='oct')   m.oct=val;
+    if(key==='dur')   m.durMul=val;
+    if(key==='noise') m.noiseAdd=val;
+    if(key==='glide') m.glide=val;
+    if(key==='rep')   m.repeats=val;
+    if(key==='filt')  m.filtMul=val;
+  });
+  m.seed=hashStr(t);
+  m.durMul *= 0.9 + m.seed*0.35;      // 문장마다 고유한 미세한 개성
+  m.filtMul *= 0.85 + m.seed*0.4;
+  return m;
+}
+/* 문장이 소리를 어떻게 바꾸는지 사람 말로 */
+function describeMod(m){
+  const out=[];
+  if(m.oct>1) out.push('높게'); else if(m.oct<1) out.push('낮게');
+  if(m.durMul>1.4) out.push('길게'); else if(m.durMul<0.7) out.push('짧게');
+  if(m.noiseAdd>0.1) out.push('거칠게'); else if(m.noiseAdd<-0.1) out.push('맑게');
+  if(m.glide>0) out.push('올라가게'); else if(m.glide<0) out.push('내려가게');
+  if(m.repeats>1) out.push('여러 번');
+  if(m.filtMul>1.3) out.push('차갑게'); else if(m.filtMul<0.75) out.push('따뜻하게');
+  return out.length ? '→ '+out.join(' · ')+' 울려요' : '';
+}
+
+/* 한 문장 입력 시트 */
+let notePending=null;
+function askNote(item){
+  notePending=item;
+  const th=$('noteThumb'); th.innerHTML='';
+  if(item.kind==='photo'){
+    const im=document.createElement('img'); im.src=item.img; th.appendChild(im);
+  } else {
+    const cv=document.createElement('canvas'); cv.width=200; cv.height=70;
+    drawWaveform(cv, item.buffer); th.appendChild(cv);
+  }
+  $('noteTitle').textContent = item.kind==='photo'
+    ? '이 장면을 한 문장으로 받아 적어주세요'
+    : '이 소리를 한 문장으로 받아 적어주세요';
+  $('noteInput').value='';
+  $('noteEcho').textContent='문장을 적으면 소리가 그쪽으로 기울어요';
+  const nb=$('noteBase');
+  if(item.kind==='photo'){
+    nb.textContent = describeTimbre(item.timbre);
+    if(!item.timbre){
+      const tick=setInterval(()=>{
+        if(item.timbre){ nb.textContent=describeTimbre(item.timbre); clearInterval(tick); }
+        if(notePending!==item) clearInterval(tick);
+      }, 200);
+    }
+  } else {
+    nb.textContent='조각이 낸 소리: 당신이 담은 그 자리의 소리 그대로';
+  }
+  $('noteSheet').style.display='flex';
+  setTimeout(()=>$('noteInput').focus(), 60);
+}
+$('noteInput').addEventListener('input', e=>{
+  const m=readSentence(e.target.value);
+  $('noteEcho').textContent = describeMod(m) || '문장을 적으면 소리가 그쪽으로 기울어요';
+});
+/* 이미지가 만든 기본 소리를 사람 말로 */
+function describeTimbre(tb){
+  if(!tb) return '조각의 소리를 읽는 중…';
+  const p=[];
+  p.push(tb.bright>0.55 ? '밝아서 트인' : tb.bright<0.35 ? '어두워서 먹먹한' : '중간 밝기의');
+  p.push(tb.hue<70||tb.hue>320 ? '난색이라 거친 결' : tb.hue<180 ? '중간색의 부드러운 결' : '한색이라 둥근 결');
+  if(tb.tex>0.4) p.push('질감이 거칠어 숨소리가 섞인');
+  if(tb.sat>0.35) p.push('쟰한 색이라 두툼한');
+  return '조각이 낸 소리: '+p.join(', ')+' 음';
+}
+function notePreview(useText){
+  if(!notePending) return;
+  const item=notePending;
+  const m = useText ? readSentence($('noteInput').value) : readSentence('');
+  const dummy = { kind:item.kind, t:0.5, timbre:item.timbre, buffer:item.buffer, mod:m };
+  ensureAudio();
+  playFrag(dummy, null, 1, 1.1);
+}
+function closeNote(withText){
+  const item=notePending; notePending=null;
+  $('noteSheet').style.display='none';
+  if(!item) return;
+  const txt = withText ? $('noteInput').value.trim() : '';
+  item.note = txt;
+  item.mod  = readSentence(txt);
   basketAdd(item);
 }
+$('noteSheet').addEventListener('pointerdown', e=>{
+  const b=e.target.closest('button');
+  if(!b) return;
+  e.preventDefault(); e.stopPropagation();
+  b.classList.add('pressed'); setTimeout(()=>b.classList.remove('pressed'),180);
+  if(b.id==='noteOk') closeNote(true);
+  else if(b.id==='noteSkip') closeNote(false);
+  else if(b.id==='notePlayBase') notePreview(false);
+  else if(b.id==='notePlayMod') notePreview(true);
+}, true);
+$('noteInput').addEventListener('keydown', e=>{ if(e.key==='Enter') closeNote(true); });
+
+/* 채집 → 빨래바구니 (걸기는 줄 앞에서) */
+function addPhotoFrag(imgSrc, isCut){
+  const item={kind:'photo', img:imgSrc, cut:!!isCut, timbre:null, note:'', mod:readSentence('')};
+  analyzeImageTimbre(imgSrc).then(tb=>{ item.timbre=tb; });
+  askNote(item);
+}
 function addSoundFrag(buffer){
-  basketAdd({kind:'sound', buffer});
+  askNote({kind:'sound', buffer, note:'', mod:readSentence('')});
 }
 function basketAdd(item){
   state.basket.push(item);
@@ -474,13 +636,19 @@ function beginPlacing(item){
   if(item.kind==='photo'){
     const el=makeFragEl(item.cut?'cutout':'polaroid');
     const img=document.createElement('img'); img.src=item.img; el.insertBefore(img, el.querySelector('.del'));
-    f={id:++fragSeq, kind:'photo', t:null, el, img:item.img, timbre:item.timbre};
+    f={id:++fragSeq, kind:'photo', t:null, el, img:item.img, timbre:item.timbre,
+       note:item.note||'', mod:item.mod||readSentence('')};
   } else {
     const el=makeFragEl('ribbon');
     const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
     el.insertBefore(cv, el.querySelector('.del'));
     drawWaveform(cv, item.buffer);
-    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer};
+    f={id:++fragSeq, kind:'sound', t:null, el, buffer:item.buffer,
+       note:item.note||'', mod:item.mod||readSentence('')};
+  }
+  if(f.note){
+    const cap=document.createElement('span'); cap.className='note'; cap.textContent=f.note;
+    f.el.insertBefore(cap, f.el.querySelector('.del'));
   }
   state.basket=state.basket.filter(x=>x!==item); updateBasket();
   bindFrag(f);
@@ -597,10 +765,21 @@ stage.addEventListener('pointercancel', ()=>{ trace.active=false; trace.pts=[]; 
 
 function previewFrag(f){
   ensureAudio();
-  const d=dryness(f);
-  if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 0.8, d);
-  else playBuffer(f.buffer, rateAt(f.t), 1.0, d);
+  playFrag(f, null, dryness(f), 0.8);
   ring(f, 900);
+}
+/* 조각 하나를 울린다 — 문장의 변조(mod)와 반복을 적용 */
+function playFrag(f, at, dry, baseDur){
+  const ac=ensureAudio();
+  const m=f.mod||readSentence('');
+  const t0 = at!=null ? at : ac.currentTime;
+  const n = Math.max(1, Math.min(3, m.repeats||1));
+  for(let i=0;i<n;i++){
+    const when = t0 + i*GRID;
+    const gain = 1 / (1 + i*0.9);
+    if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), (baseDur||1.3), dry, when, m, gain);
+    else playBuffer(f.buffer, rateAt(f.t)*m.oct, gain, dry, when, m);
+  }
 }
 function ring(f, ms){ f.el.classList.add('ringing'); setTimeout(()=>f.el.classList.remove('ringing'), ms); }
 
@@ -653,16 +832,19 @@ function analyzeImageTimbre(src){
     img.src=src;
   });
 }
-function playImageTone(tb, freq, dur, dry, at){
+function playImageTone(tb, freq, dur, dry, at, mod, gainMul){
   dry = dry==null ? 1 : dry;
+  const m = mod || readSentence('');
+  freq *= (m.oct||1);
+  dur  *= (m.durMul||1);
   if(!tb) return playTone(freq, dur, at);
   const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
-  const out=ac.createGain(); out.gain.value=1;
+  const out=ac.createGain(); out.gain.value=(gainMul==null?1:gainMul);
   routeNote(out);
   // 파형: 색상으로 결정 (난색=거칠게, 한색=둥글게)
   const wave = tb.hue<70||tb.hue>320 ? 'sawtooth' : (tb.hue<180 ? 'triangle' : 'sine');
   const flt=ac.createBiquadFilter(); flt.type='lowpass';
-  flt.frequency.value = (500 + tb.bright*4200) * (0.22+0.78*dry); // 젖은 소리는 먹먹하게
+  flt.frequency.value = (500 + tb.bright*4200) * (0.22+0.78*dry) * (m.filtMul||1); // 젖은 소리는 먹먹하게
   flt.connect(out);
   const g=ac.createGain(); g.connect(flt);
   g.gain.setValueAtTime(0,t0);
@@ -672,18 +854,27 @@ function playImageTone(tb, freq, dur, dry, at){
   const o2=ac.createOscillator(); o2.type=wave; o2.frequency.value=freq;
   o2.detune.value = 4 + tb.sat*22;                      // 채도 → 디튠 두께
   const g2=ac.createGain(); g2.gain.value=0.5; o2.connect(g2); g2.connect(g);
+  // 문장이 지시한 오르내림(글리상드)
+  if(m.glide){
+    const target = freq * Math.pow(2, m.glide/12);
+    o1.frequency.setValueAtTime(freq, t0);
+    o1.frequency.exponentialRampToValueAtTime(target, t0+dur*0.9);
+    o2.frequency.setValueAtTime(freq, t0);
+    o2.frequency.exponentialRampToValueAtTime(target, t0+dur*0.9);
+  }
   // 질감 → 숨소리(노이즈)
-  if(tb.tex>0.06){
+  const texAmt = Math.max(0, Math.min(1, tb.tex + (m.noiseAdd||0)));
+  if(texAmt>0.06){
     const len=ac.sampleRate*dur, nb=ac.createBuffer(1,len,ac.sampleRate), nd=nb.getChannelData(0);
     for(let i=0;i<len;i++) nd[i]=(Math.random()*2-1)*Math.exp(-i/len*4);
     const ns=ac.createBufferSource(); ns.buffer=nb;
-    const ng=ac.createGain(); ng.gain.value=tb.tex*0.16;
+    const ng=ac.createGain(); ng.gain.value=texAmt*0.16;
     const nf=ac.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=freq*2.5;
     ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t0);
   }
   // 질감 → 미세한 떨림
   const lfo=ac.createOscillator(), lg=ac.createGain();
-  lfo.frequency.value=3+tb.tex*8; lg.gain.value=freq*0.006*(0.4+tb.tex);
+  lfo.frequency.value=3+texAmt*8; lg.gain.value=freq*0.006*(0.4+texAmt);
   lfo.connect(lg); lg.connect(o1.frequency);
   o1.start(t0); o2.start(t0); lfo.start(t0);
   const tEnd=t0+dur+2.5; o1.stop(tEnd); o2.stop(tEnd); lfo.stop(tEnd);
@@ -779,16 +970,18 @@ function rateAt(t){
   const idx=Math.round(n*(semis.length-1));
   return Math.pow(2, semis[idx]/12);
 }
-function playBuffer(buffer, rate, gain, dry, at){
+function playBuffer(buffer, rate, gain, dry, at, mod){
   dry = dry==null ? 1 : dry;
+  const m = mod || readSentence('');
   const ac=ensureAudio(), t0=at!=null?at:ac.currentTime;
   const s=ac.createBufferSource(); s.buffer=buffer; s.playbackRate.value=rate||1;
   const g=ac.createGain(); g.gain.value=gain??1;
   s.connect(g);
   let tail=g;
-  if(dry<0.97){
+  const cut=(700 + 8000*dry) * (m.filtMul||1);
+  if(dry<0.97 || (m.filtMul||1)!==1){
     const f=ac.createBiquadFilter(); f.type='lowpass';
-    f.frequency.value = 700 + 8000*dry;
+    f.frequency.value = Math.max(300, Math.min(16000, cut));
     g.connect(f); tail=f;
   }
   tail.connect(outBus());
@@ -814,9 +1007,7 @@ function play(){
     const raw = f.t * PLAY_SECONDS;
     f._trig = Math.round(raw / GRID) * GRID;      // 8분음표 스냅
     const when = startAt + f._trig;
-    const d = dryness(f);
-    if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), 1.3, d, when);
-    else playBuffer(f.buffer, rateAt(f.t), 1.0, d, when);
+    playFrag(f, when, dryness(f), 1.3);
   });
 
   const t0=performance.now() + 150;
