@@ -220,56 +220,46 @@ const $ = id => document.getElementById(id);
 const stage = $('stage'), arLayer = $('arLayer'), ropeCanvas = $('ropeCanvas'), ctx = ropeCanvas.getContext('2d');
 
 /* ---------- 자이로 정합 (LIVE 모드) ----------
-   보정 시점의 기기 방향을 기준으로, 팬/틸트한 만큼 오버레이를 반대로 이동 */
-const gyro = { on:false, ref:null, cur:null, dx:0, dy:0 };
-window.addEventListener('deviceorientation', e=>{
-  if(e.beta==null) return;
-  gyro.cur = { a:e.alpha||0, b:e.beta, g:e.gamma||0 };
+   회전 속도(rotationRate)를 적분한 순수 상대각. 줄을 긋는 순간 0으로 리셋되므로
+   나침반 드리프트·각도 랩 문제가 없다. 이동(평행이동)은 못 잡음 → 재보정으로 해결 */
+const gyro = { on:true, angX:0, angY:0, dx:0, dy:0 };
+window.addEventListener('devicemotion', e=>{
+  const r=e.rotationRate;
+  if(!r || (r.beta==null && r.gamma==null)) return;
+  let d = e.interval || 1/60;
+  if(d>1) d/=1000;                 // 일부 브라우저는 ms 단위
+  gyro.angX += (r.gamma||0)*d;     // 기기 Y축 회전 = 좌우 팬
+  gyro.angY += (r.beta ||0)*d;     // 기기 X축 회전 = 상하 틸트
 });
-/* W3C 기기방향 → 회전행렬 (world←device, R = Rz(α)·Rx(β)·Ry(γ)) */
-function rotM(a,b,g){
-  const r=Math.PI/180, ca=Math.cos(a*r),sa=Math.sin(a*r),cb=Math.cos(b*r),sb=Math.sin(b*r),cg=Math.cos(g*r),sg=Math.sin(g*r);
-  return [
-    [ca*cg - sa*sb*sg, -sa*cb, ca*sg + sa*sb*cg],
-    [sa*cg + ca*sb*sg,  ca*cb, sa*sg - ca*sb*cg],
-    [-cb*sg,            sb,    cb*cg]
-  ];
-}
+function gyroReset(){ gyro.angX=0; gyro.angY=0; gyro.dx=0; gyro.dy=0; }
 function gyroApply(){
   let tx=0, ty=0;
-  if(gyro.on && state.mode==='live' && gyro.ref && gyro.cur){
-    const R0=rotM(gyro.ref.a,gyro.ref.b,gyro.ref.g);
-    const R =rotM(gyro.cur.a,gyro.cur.b,gyro.cur.g);
-    // 보정 시점 카메라 전방(-Z_dev)을 월드 좌표로
-    const f0=[-R0[0][2],-R0[1][2],-R0[2][2]];
-    // 현재 기기 좌표계로 재투영 (R^T · f0)
-    const d=[ R[0][0]*f0[0]+R[1][0]*f0[1]+R[2][0]*f0[2],
-              R[0][1]*f0[0]+R[1][1]*f0[1]+R[2][1]*f0[2],
-              R[0][2]*f0[0]+R[1][2]*f0[1]+R[2][2]*f0[2] ];
-    if(d[2] < -0.1){ // 아직 화면 앞쪽에 있을 때만
-      const degX=Math.atan2(d[0],-d[2])*180/Math.PI;
-      const degY=Math.atan2(d[1],-d[2])*180/Math.PI;
-      // 화면 회전(가로/세로) 반영
-      const ang=((screen.orientation&&screen.orientation.angle)??window.orientation)||0;
-      const rr=ang*Math.PI/180, c=Math.cos(rr), s=Math.sin(rr);
-      const sx=degX*c+degY*s, sy=-degX*s+degY*c;
-      const {w,h}=px();
-      const ppd=Math.min(w,h)/50; // 짧은 축 기준 화각 50° 근사
-      tx=sx*ppd; ty=-sy*ppd;
-      // 화면 밖으로 날아가지 않게 제한
-      const mx=w*0.35, my=h*0.35;
-      tx=Math.max(-mx,Math.min(mx,tx)); ty=Math.max(-my,Math.min(my,ty));
-    }
+  if(gyro.on && state.mode==='live' && ready()){
+    // 화면 회전(가로/세로)에 맞춰 기기축 → 화면축
+    const ang=((screen.orientation&&screen.orientation.angle)??window.orientation)||0;
+    const rr=ang*Math.PI/180, c=Math.cos(rr), s=Math.sin(rr);
+    const sx=gyro.angX*c + gyro.angY*s;
+    const sy=-gyro.angX*s + gyro.angY*c;
+    const {w,h}=px();
+    const ppd=Math.min(w,h)/50;    // 화각 50° 근사 (도당 픽셀)
+    tx=sx*ppd; ty=sy*ppd;
+    const mx=w*0.35, my=h*0.35;    // 화면 밖 실종 방지
+    tx=Math.max(-mx,Math.min(mx,tx)); ty=Math.max(-my,Math.min(my,ty));
   }
-  gyro.dx += (tx-gyro.dx)*0.3; gyro.dy += (ty-gyro.dy)*0.3;
+  gyro.dx += (tx-gyro.dx)*0.35; gyro.dy += (ty-gyro.dy)*0.35;
   arLayer.style.transform = `translate(${gyro.dx.toFixed(1)}px, ${gyro.dy.toFixed(1)}px)`;
 }
 async function askGyroPermission(){
   try{
+    if(window.DeviceMotionEvent && DeviceMotionEvent.requestPermission){
+      await DeviceMotionEvent.requestPermission();
+    }
+  }catch(e){ /* 거부 시 정합 없이 진행 */ }
+  try{
     if(window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission){
       await DeviceOrientationEvent.requestPermission();
     }
-  }catch(e){ /* 거부 시 정합 없이 진행 */ }
+  }catch(e){}
 }
 /* 화면 좌표 → AR 레이어 좌표 (오버레이 이동분 보정) */
 function arPt(clientX, clientY){
@@ -352,7 +342,7 @@ function finishTrace(){
   }
   const {w:W,h:H}=px();
   state.curvePts = out.map(p=>({fx:p.x/W, fy:p.y/H}));
-  gyro.ref = gyro.cur ? {...gyro.cur} : null;   // 이 방향을 정합 기준으로
+  gyroReset();                                  // 이 순간을 정합 기준으로
   state.calibrating=false; hint('');
   repositionAll();
   if(state.pendingPlace){
@@ -916,7 +906,7 @@ $('btnGyro').addEventListener('click', ()=>{
   gyro.on=!gyro.on;
   $('btnGyro').classList.toggle('on', gyro.on);
   if(gyro.on){
-    gyro.ref = gyro.cur ? {...gyro.cur} : null;  // 지금 보이는 위치를 기준으로 재고정
+    gyroReset();                                 // 지금 보이는 위치를 기준으로 재고정
     toast('📡 따라가기 켬 — 지금 화면 위치를 기준으로 고정합니다');
   } else {
     toast('📡 따라가기 끔');
@@ -925,7 +915,7 @@ $('btnGyro').addEventListener('click', ()=>{
 
 /* ---------- 보정 ---------- */
 function startCalibration(){
-  state.curvePts=null; state.calibrating=true; gyro.ref=null;
+  state.curvePts=null; state.calibrating=true; gyroReset();
   drawRope();
   hint('손가락으로 실제 줄을 왼쪽 끝에서 오른쪽 끝까지 따라 그으세요');
 }
@@ -974,6 +964,7 @@ $('setupDemo').addEventListener('click', ()=>{
 });
 
 /* ---------- 리사이즈 ---------- */
+$('btnGyro').classList.toggle('on', gyro.on);
 if(new URLSearchParams(location.search).has('demo')){
   $('setupPhoto').style.display='';
   $('setupDemo').style.display='';
