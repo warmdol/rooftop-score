@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>옥상 악보 — 받아 적는 연주자들</title>
+<style>
+  :root {
+    --ink: #f2efe9;
+    --dim: #b8b2a6;
+    --accent: #ffd97a;
+    --bg: #0d0f14;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
+    font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif; }
+
+  #stage { position:fixed; inset:0; overflow:hidden; touch-action:none; }
+  #bgImg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; user-select:none; pointer-events:none; }
+  #bgVideo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
+  #ropeCanvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+
+  /* ---------- fragments ---------- */
+  .frag { position:absolute; transform-origin:50% -6px; will-change:transform; cursor:grab; }
+  .frag .peg { position:absolute; top:-14px; left:50%; transform:translateX(-50%);
+    width:10px; height:16px; border-radius:3px; background:#c9b79b; box-shadow:0 1px 2px rgba(0,0,0,.5); }
+  .frag.polaroid { background:#faf7f0; padding:5px 5px 16px; border-radius:2px;
+    box-shadow:0 6px 14px rgba(0,0,0,.55); }
+  .frag.polaroid img { display:block; width:86px; height:86px; object-fit:cover; }
+  .frag.ribbon { background:rgba(250,247,240,.16); border:1px solid rgba(250,247,240,.35);
+    backdrop-filter: blur(2px); border-radius:3px; padding:4px; box-shadow:0 6px 14px rgba(0,0,0,.45); }
+  .frag.ribbon canvas { display:block; width:110px; height:44px; }
+  .frag .del { position:absolute; top:-30px; right:-12px; width:24px; height:24px; border-radius:50%;
+    background:rgba(20,20,20,.85); color:#fff; border:1px solid #666; font-size:13px; line-height:22px;
+    text-align:center; display:none; }
+  .frag.selected .del { display:block; }
+  @keyframes sway { 0%{ transform:rotate(var(--r0)); } 50%{ transform:rotate(var(--r1)); } 100%{ transform:rotate(var(--r0)); } }
+  .frag { animation: sway 3.2s ease-in-out infinite; }
+  .frag.ringing { filter: drop-shadow(0 0 14px var(--accent)) brightness(1.25); animation-duration:1.1s; }
+
+  #playhead { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%;
+    background:var(--accent); box-shadow:0 0 18px 4px rgba(255,217,122,.8); display:none; pointer-events:none; }
+
+  /* ---------- top bar ---------- */
+  #topbar { position:fixed; top:0; left:0; right:0; padding:10px 14px;
+    display:flex; align-items:center; gap:10px; z-index:30;
+    background:linear-gradient(rgba(10,10,14,.85), rgba(10,10,14,0)); }
+  #topbar h1 { font-size:15px; font-weight:600; letter-spacing:.5px; }
+  #topbar .sub { font-size:11px; color:var(--dim); }
+  #hint { position:fixed; top:52px; left:0; right:0; text-align:center; z-index:30;
+    font-size:13px; color:var(--accent); text-shadow:0 1px 4px #000; padding:0 20px; }
+
+  /* ---------- bottom bar ---------- */
+  #toolbar { position:fixed; bottom:0; left:0; right:0; z-index:30; padding:10px 12px 18px;
+    display:flex; gap:8px; justify-content:center;
+    background:linear-gradient(rgba(10,10,14,0), rgba(10,10,14,.9)); }
+  button.tool { flex:0 1 auto; min-width:64px; padding:10px 12px; border-radius:14px;
+    border:1px solid rgba(255,255,255,.22); background:rgba(24,26,34,.85); color:var(--ink);
+    font-size:13px; line-height:1.25; }
+  button.tool:active { background:rgba(60,64,80,.9); }
+  button.tool.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
+  button.tool:disabled { opacity:.35; }
+
+  /* ---------- setup overlay ---------- */
+  #setup { position:fixed; inset:0; z-index:40; background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:30px; text-align:center; }
+  #setup h1 { font-size:22px; font-weight:700; }
+  #setup p { font-size:13px; color:var(--dim); line-height:1.7; max-width:340px; }
+  #setup button { width:min(320px, 86vw); padding:15px; border-radius:16px; font-size:15px;
+    border:1px solid rgba(255,255,255,.2); background:#1b1e27; color:var(--ink); }
+  #setup button.primary { background:var(--accent); color:#1a1508; border-color:transparent; font-weight:700; }
+
+  /* ---------- record sheet ---------- */
+  #recSheet { position:fixed; left:0; right:0; bottom:0; z-index:50; display:none;
+    background:#15171f; border-radius:20px 20px 0 0; padding:22px 20px 30px; text-align:center; }
+  #recSheet .big { font-size:30px; font-weight:700; color:var(--accent); margin:8px 0; }
+  #recSheet button { margin-top:10px; padding:12px 30px; border-radius:14px; border:none;
+    background:#e5533d; color:#fff; font-size:15px; font-weight:600; }
+
+  #toast { position:fixed; bottom:96px; left:50%; transform:translateX(-50%); z-index:60;
+    background:rgba(20,22,30,.92); border:1px solid rgba(255,255,255,.18); color:var(--ink);
+    padding:9px 16px; border-radius:12px; font-size:12.5px; display:none; max-width:86vw; }
+
+  input[type=file] { display:none; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="bgVideo" autoplay playsinline muted style="display:none"></video>
+  <img id="bgImg" alt="" style="display:none">
+  <canvas id="ropeCanvas"></canvas>
+  <div id="playhead"></div>
+</div>
+
+<div id="topbar" style="display:none">
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span>
+</div>
+<div id="hint" style="display:none"></div>
+
+<div id="toolbar" style="display:none">
+  <button class="tool" id="btnPhoto">📷<br>찍어 널기</button>
+  <button class="tool" id="btnRec">🎙<br>녹음해 널기</button>
+  <button class="tool primary" id="btnPlay">▶<br>연주</button>
+  <button class="tool" id="btnDemo">✚<br>데모</button>
+  <button class="tool" id="btnCal">↺<br>재보정</button>
+</div>
+
+<div id="setup">
+  <h1>옥상 악보</h1>
+  <p>빨랫줄을 화면에 담고 양 끝을 탭하면, 줄이 악보가 됩니다.<br>
+     사진과 소리를 채집해 줄에 널고, 왼쪽부터 연주하세요.</p>
+  <button class="primary" id="setupLive">📱 카메라로 줄 비추기 (AR)</button>
+  <button id="setupPhoto">🖼 줄 사진으로 시작</button>
+  <button id="setupDemo">✨ 데모 이미지로 시작</button>
+  <p id="setupNote" style="font-size:11px"></p>
+</div>
+
+<div id="recSheet">
+  <div>소리를 채집하는 중</div>
+  <div class="big" id="recCount">5.0</div>
+  <button id="recStop">그만 담기</button>
+</div>
+
+<div id="toast"></div>
+
+<input type="file" id="fileRope" accept="image/*">
+<input type="file" id="fileFrag" accept="image/*" capture="environment">
+
+<script>
+'use strict';
+/* =========================================================
+   옥상 악보 — 기능 프로토타입 v0.1
+   - 줄 보정: 양 끝 2탭 → 처진 곡선(포물선 근사)
+   - 조각: 사진(폴라로이드) / 녹음(파형 리본)
+   - 위치 = 줄 좌표 t(0..1), 높이 = 음높이(펜타토닉)
+   - 연주: 재생 헤드가 곡선을 따라 왼→오, 조각 통과 시 발음
+   ========================================================= */
+
+const $ = id => document.getElementById(id);
+const stage = $('stage'), ropeCanvas = $('ropeCanvas'), ctx = ropeCanvas.getContext('2d');
+
+const state = {
+  mode: null,            // 'live' | 'photo'
+  anchors: [],           // [{fx,fy} x2] 화면 비율 좌표
+  sag: 0.13,             // 처짐 (스팬 대비)
+  frags: [],             // {id, t, kind:'photo'|'sound', el, img?, buffer?}
+  placing: null,         // 배치 대기 조각
+  calibrating: false,
+  playing: false,
+  selected: null,
+};
+let audioCtx = null;
+const PENTA = [0,2,4,7,9,12,14,16,19,21]; // C 펜타토닉 2옥타브 (반음 오프셋)
+const BASE_FREQ = 220; // A3 기준
+
+/* ---------- 유틸 ---------- */
+function toast(msg, ms=2600){ const t=$('toast'); t.textContent=msg; t.style.display='block';
+  clearTimeout(t._tm); t._tm=setTimeout(()=>t.style.display='none', ms); }
+function hint(msg){ const h=$('hint'); if(!msg){h.style.display='none';return;} h.textContent=msg; h.style.display='block'; }
+function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+function px(){ return { w: stage.clientWidth, h: stage.clientHeight }; }
+
+/* ---------- 줄(곡선) ---------- */
+function anchorPx(i){ const {w,h}=px(); const a=state.anchors[i]; return {x:a.fx*w, y:a.fy*h}; }
+function curvePoint(t){
+  const p0=anchorPx(0), p1=anchorPx(1);
+  const dx=p1.x-p0.x, dy=p1.y-p0.y;
+  const span=Math.hypot(dx,dy);
+  const sagPx=state.sag*span;
+  return { x: p0.x+dx*t, y: p0.y+dy*t + sagPx*4*t*(1-t) };
+}
+function nearestT(x,y){
+  let best=0, bd=1e9;
+  for(let t=0;t<=1.0001;t+=0.004){
+    const p=curvePoint(t); const d=(p.x-x)**2+(p.y-y)**2;
+    if(d<bd){bd=d;best=t;}
+  }
+  return {t:best, dist:Math.sqrt(bd)};
+}
+function drawRope(){
+  const {w,h}=px();
+  if(ropeCanvas.width!==w||ropeCanvas.height!==h){ ropeCanvas.width=w; ropeCanvas.height=h; }
+  ctx.clearRect(0,0,w,h);
+  if(state.anchors.length<2) {
+    // 보정 중 첫 앵커 표시
+    if(state.anchors.length===1){ const p=anchorPx(0); dot(p.x,p.y); }
+    return;
+  }
+  ctx.beginPath();
+  for(let t=0;t<=1.0001;t+=0.01){ const p=curvePoint(t); t===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y); }
+  ctx.strokeStyle='rgba(255,217,122,.5)'; ctx.lineWidth=2; ctx.setLineDash([7,7]); ctx.stroke(); ctx.setLineDash([]);
+  dot(anchorPx(0).x, anchorPx(0).y); dot(anchorPx(1).x, anchorPx(1).y);
+}
+function dot(x,y){ ctx.beginPath(); ctx.arc(x,y,6,0,7); ctx.fillStyle='#ffd97a'; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.stroke(); }
+
+/* ---------- 음높이: 줄 위 높이 → 펜타토닉 ---------- */
+function pitchAt(t){
+  // 곡선의 y범위 안에서 위쪽일수록 높은 음
+  let yMin=1e9,yMax=-1e9;
+  for(let s=0;s<=1.0001;s+=0.02){ const y=curvePoint(s).y; yMin=Math.min(yMin,y); yMax=Math.max(yMax,y); }
+  const y=curvePoint(t).y;
+  const n=(yMax-y)/Math.max(1,(yMax-yMin));            // 0(최저)..1(최고)
+  const idx=Math.round(n*(PENTA.length-1));
+  return BASE_FREQ*Math.pow(2, PENTA[idx]/12);
+}
+
+/* ---------- 조각 ---------- */
+let fragSeq=0;
+function makeFragEl(kind){
+  const el=document.createElement('div');
+  el.className='frag '+(kind==='photo'?'polaroid':'ribbon');
+  el.style.setProperty('--r0',(Math.random()*6-3)+'deg');
+  el.style.setProperty('--r1',(Math.random()*6-3)+'deg');
+  el.style.animationDelay=(-Math.random()*3)+'s';
+  const peg=document.createElement('div'); peg.className='peg'; el.appendChild(peg);
+  const del=document.createElement('button'); del.className='del'; del.textContent='×'; el.appendChild(del);
+  stage.appendChild(el);
+  return el;
+}
+function positionFrag(f){
+  const p=curvePoint(f.t);
+  f.el.style.left=(p.x - f.el.offsetWidth/2)+'px';
+  f.el.style.top=(p.y + 8)+'px';
+}
+function repositionAll(){ state.frags.forEach(positionFrag); }
+
+function addPhotoFrag(imgSrc){
+  const el=makeFragEl('photo');
+  const img=document.createElement('img'); img.src=imgSrc; el.insertBefore(img, el.querySelector('.del'));
+  const f={id:++fragSeq, kind:'photo', t:null, el, img:imgSrc};
+  bindFrag(f);
+  startPlacing(f, '줄에서 이 사진을 널 자리를 탭하세요');
+}
+function addSoundFrag(buffer){
+  const el=makeFragEl('sound');
+  const cv=document.createElement('canvas'); cv.width=220; cv.height=88;
+  el.insertBefore(cv, el.querySelector('.del'));
+  drawWaveform(cv, buffer);
+  const f={id:++fragSeq, kind:'sound', t:null, el, buffer};
+  bindFrag(f);
+  startPlacing(f, '줄에서 이 소리를 널 자리를 탭하세요');
+}
+function drawWaveform(cv, buffer){
+  const c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height);
+  const data=buffer.getChannelData(0), step=Math.max(1,Math.floor(data.length/cv.width));
+  c.beginPath();
+  for(let x=0;x<cv.width;x++){
+    let min=1,max=-1;
+    for(let j=0;j<step;j++){ const v=data[x*step+j]||0; if(v<min)min=v; if(v>max)max=v; }
+    const mid=cv.height/2;
+    c.moveTo(x, mid+min*mid*0.92); c.lineTo(x, mid+max*mid*0.92+0.5);
+  }
+  c.strokeStyle='rgba(250,247,240,.95)'; c.lineWidth=1; c.stroke();
+}
+function startPlacing(f, msg){
+  state.placing=f;
+  f.el.style.opacity='0.55';
+  const {w,h}=px();
+  f.el.style.left=(w/2-50)+'px'; f.el.style.top=(h-230)+'px';
+  hint(msg);
+}
+function bindFrag(f){
+  // 선택/삭제/드래그
+  let dragging=false, moved=false;
+  f.el.addEventListener('pointerdown', e=>{
+    if(f.t===null) return;
+    dragging=true; moved=false; f.el.setPointerCapture(e.pointerId); e.stopPropagation();
+  });
+  f.el.addEventListener('pointermove', e=>{
+    if(!dragging) return;
+    moved=true;
+    const r=stage.getBoundingClientRect();
+    const {t}=nearestT(e.clientX-r.left, e.clientY-r.top);
+    f.t=t; positionFrag(f);
+  });
+  f.el.addEventListener('pointerup', e=>{
+    if(!dragging) return; dragging=false;
+    if(!moved){ // 탭 = 선택 토글
+      if(state.selected && state.selected!==f) state.selected.el.classList.remove('selected');
+      f.el.classList.toggle('selected');
+      state.selected = f.el.classList.contains('selected') ? f : null;
+    }
+  });
+  f.el.querySelector('.del').addEventListener('click', e=>{
+    e.stopPropagation();
+    state.frags=state.frags.filter(x=>x!==f); f.el.remove();
+    toast('조각을 내렸습니다');
+  });
+}
+
+/* ---------- 스테이지 탭: 보정 & 배치 ---------- */
+stage.addEventListener('pointerdown', e=>{
+  const r=stage.getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
+  const {w,h}=px();
+
+  if(state.calibrating){
+    state.anchors.push({fx:x/w, fy:y/h});
+    if(state.anchors.length===1){ hint('이번엔 줄의 오른쪽 끝을 탭하세요'); }
+    else {
+      // 왼쪽이 항상 t=0이 되도록 정렬
+      if(state.anchors[0].fx > state.anchors[1].fx) state.anchors.reverse();
+      state.calibrating=false; hint('');
+      toast('줄이 악보가 되었습니다. 이제 채집해서 널어보세요.');
+      repositionAll();
+    }
+    drawRope(); return;
+  }
+
+  if(state.placing){
+    const {t,dist}=nearestT(x,y);
+    if(dist>110){ toast('줄과 너무 멀어요 — 줄 가까이를 탭하세요'); return; }
+    const f=state.placing; f.t=t; f.el.style.opacity='1';
+    state.frags.push(f); state.placing=null; hint('');
+    positionFrag(f);
+    previewFrag(f);
+  }
+});
+
+function previewFrag(f){
+  ensureAudio();
+  if(f.kind==='photo') playTone(pitchAt(f.t), 0.7);
+  else playBuffer(f.buffer, rateAt(f.t), 1.0);
+  ring(f, 900);
+}
+function ring(f, ms){ f.el.classList.add('ringing'); setTimeout(()=>f.el.classList.remove('ringing'), ms); }
+
+/* ---------- 사운드 ---------- */
+function playTone(freq, dur){
+  const ac=ensureAudio(), t0=ac.currentTime;
+  const o=ac.createOscillator(), g=ac.createGain();
+  o.type='sine'; o.frequency.value=freq;
+  const o2=ac.createOscillator(), g2=ac.createGain();
+  o2.type='triangle'; o2.frequency.value=freq*2; g2.gain.value=0.12;
+  g.gain.setValueAtTime(0,t0);
+  g.gain.linearRampToValueAtTime(0.5,t0+0.02);
+  g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  o.connect(g); o2.connect(g2); g2.connect(g); g.connect(ac.destination);
+  o.start(t0); o2.start(t0); o.stop(t0+dur+0.1); o2.stop(t0+dur+0.1);
+}
+function rateAt(t){
+  let yMin=1e9,yMax=-1e9;
+  for(let s=0;s<=1.0001;s+=0.02){ const y=curvePoint(s).y; yMin=Math.min(yMin,y); yMax=Math.max(yMax,y); }
+  const n=(yMax-curvePoint(t).y)/Math.max(1,(yMax-yMin));
+  return 0.8 + n*0.5; // 0.8x ~ 1.3x
+}
+function playBuffer(buffer, rate, gain){
+  const ac=ensureAudio();
+  const s=ac.createBufferSource(); s.buffer=buffer; s.playbackRate.value=rate||1;
+  const g=ac.createGain(); g.gain.value=gain??1;
+  s.connect(g); g.connect(ac.destination); s.start();
+  return s;
+}
+
+/* ---------- 연주 ---------- */
+const PLAY_SECONDS = 16;
+function play(){
+  if(state.anchors.length<2){ toast('먼저 줄을 보정하세요'); return; }
+  if(!state.frags.length){ toast('널린 조각이 없습니다'); return; }
+  if(state.playing) return;
+  ensureAudio();
+  state.playing=true; $('btnPlay').disabled=true;
+  const ph=$('playhead'); ph.style.display='block';
+  const played=new Set();
+  const t0=performance.now();
+  (function step(){
+    const el=(performance.now()-t0)/1000;
+    const t=Math.min(1, el/PLAY_SECONDS);
+    const p=curvePoint(t);
+    ph.style.left=p.x+'px'; ph.style.top=p.y+'px';
+    state.frags.forEach(f=>{
+      if(!played.has(f.id) && f.t<=t){
+        played.add(f.id);
+        if(f.kind==='photo') playTone(pitchAt(f.t), 1.1);
+        else playBuffer(f.buffer, rateAt(f.t), 1.0);
+        ring(f, 1200);
+      }
+    });
+    if(t<1){ requestAnimationFrame(step); }
+    else { state.playing=false; $('btnPlay').disabled=false; ph.style.display='none';
+           toast('연주가 끝났습니다 — 막이 내립니다'); }
+  })();
+}
+
+/* ---------- 사진 채집 ---------- */
+$('btnPhoto').addEventListener('click', ()=>{
+  if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
+  if(state.mode==='live' && window._liveVideoReady){ captureFromLive(); }
+  else $('fileFrag').click();
+});
+$('fileFrag').addEventListener('change', e=>{
+  const file=e.target.files[0]; e.target.value='';
+  if(!file) return;
+  shrinkImage(file, 700).then(addPhotoFrag);
+});
+function captureFromLive(){
+  const v=$('bgVideo');
+  const c=document.createElement('canvas');
+  const s=Math.min(700/v.videoWidth, 1);
+  c.width=v.videoWidth*s; c.height=v.videoHeight*s;
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  addPhotoFrag(c.toDataURL('image/jpeg',0.85));
+}
+function shrinkImage(file, max){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      const s=Math.min(max/img.width, max/img.height, 1);
+      const c=document.createElement('canvas');
+      c.width=img.width*s; c.height=img.height*s;
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      res(c.toDataURL('image/jpeg',0.85));
+    };
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+/* ---------- 녹음 채집 ---------- */
+let recorder=null, recTimer=null;
+$('btnRec').addEventListener('click', async ()=>{
+  if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
+  ensureAudio();
+  try{
+    const ms=await navigator.mediaDevices.getUserMedia({audio:true});
+    const chunks=[];
+    recorder=new MediaRecorder(ms);
+    recorder.ondataavailable=e=>chunks.push(e.data);
+    recorder.onstop=async ()=>{
+      ms.getTracks().forEach(t=>t.stop());
+      $('recSheet').style.display='none';
+      try{
+        const ab=await new Blob(chunks).arrayBuffer();
+        const buf=await ensureAudio().decodeAudioData(ab);
+        addSoundFrag(buf);
+      }catch(err){ toast('녹음 해석 실패: '+err.message); }
+    };
+    recorder.start();
+    $('recSheet').style.display='block';
+    let left=5.0;
+    $('recCount').textContent=left.toFixed(1);
+    recTimer=setInterval(()=>{
+      left-=0.1; $('recCount').textContent=Math.max(0,left).toFixed(1);
+      if(left<=0) stopRec();
+    },100);
+  }catch(err){
+    toast('마이크를 열 수 없습니다 (HTTPS/localhost 필요): '+err.name);
+  }
+});
+function stopRec(){ clearInterval(recTimer); if(recorder&&recorder.state!=='inactive') recorder.stop(); }
+$('recStop').addEventListener('click', stopRec);
+
+/* ---------- 데모 조각 ---------- */
+let demoN=0;
+$('btnDemo').addEventListener('click', ()=>{
+  if(state.anchors.length<2) return toast('먼저 줄을 보정하세요');
+  demoN++;
+  if(demoN%2===1){
+    // 데모 사진: 캔버스 그라디언트
+    const c=document.createElement('canvas'); c.width=c.height=300;
+    const g=c.getContext('2d');
+    const grad=g.createLinearGradient(0,0,300,300);
+    const hues=[[26,'#2b3a67','#e98a5e'],[1,'#494e6b','#98878f'],[2,'#1b2a49','#d0e1f9']][demoN%3];
+    grad.addColorStop(0,hues[1]); grad.addColorStop(1,hues[2]);
+    g.fillStyle=grad; g.fillRect(0,0,300,300);
+    g.fillStyle='rgba(255,255,255,.85)'; g.font='28px sans-serif';
+    g.fillText('demo #'+demoN, 20, 270);
+    addPhotoFrag(c.toDataURL());
+  } else {
+    // 데모 소리: 합성 버퍼 (새소리 비슷한 처프)
+    const ac=ensureAudio(), sr=ac.sampleRate, len=sr*1.2;
+    const buf=ac.createBuffer(1,len,sr), d=buf.getChannelData(0);
+    for(let i=0;i<len;i++){
+      const tt=i/sr;
+      const f=600+400*Math.sin(tt*9+demoN);
+      d[i]=Math.sin(2*Math.PI*f*tt)*Math.exp(-tt*2.5)*0.6*(0.6+0.4*Math.sin(tt*40));
+    }
+    addSoundFrag(buf);
+  }
+});
+
+/* ---------- 보정 ---------- */
+function startCalibration(){
+  state.anchors=[]; state.calibrating=true;
+  drawRope();
+  hint('줄의 왼쪽 끝을 탭하세요');
+}
+$('btnCal').addEventListener('click', startCalibration);
+
+/* ---------- 시작 모드 ---------- */
+function enterStage(modeLabel){
+  $('setup').style.display='none';
+  $('topbar').style.display='flex';
+  $('toolbar').style.display='flex';
+  $('mode-label').textContent=modeLabel;
+  startCalibration();
+}
+$('setupLive').addEventListener('click', async ()=>{
+  ensureAudio();
+  try{
+    const ms=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const v=$('bgVideo'); v.srcObject=ms; v.style.display='block';
+    v.onloadedmetadata=()=>{ window._liveVideoReady=true; };
+    state.mode='live';
+    enterStage('LIVE · AR');
+  }catch(err){
+    $('setupNote').textContent='카메라를 열 수 없습니다('+err.name+'). HTTPS 또는 localhost에서 열어주세요. 줄 사진 모드를 대신 쓸 수 있어요.';
+  }
+});
+$('setupPhoto').addEventListener('click', ()=>$('fileRope').click());
+$('fileRope').addEventListener('change', e=>{
+  const file=e.target.files[0]; e.target.value='';
+  if(!file) return;
+  const img=$('bgImg');
+  img.src=URL.createObjectURL(file); img.style.display='block';
+  state.mode='photo';
+  enterStage('줄 사진');
+});
+$('setupDemo').addEventListener('click', ()=>{
+  const img=$('bgImg');
+  img.src='demo-rope.jpg';
+  img.onerror=()=>{ // 이미지가 없으면 그라디언트 배경
+    img.style.display='none';
+    stage.style.background='linear-gradient(#2b3a5e 0%, #4a4a68 55%, #171a24 100%)';
+  };
+  img.style.display='block';
+  state.mode='photo';
+  enterStage('데모');
+});
+
+/* ---------- 리사이즈 ---------- */
+window.addEventListener('resize', ()=>{ drawRope(); repositionAll(); });
+(function loop(){ drawRope(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
