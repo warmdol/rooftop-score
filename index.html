@@ -558,8 +558,13 @@ function notePreview(useText){
   if(!notePending) return;
   const item=notePending;
   const m = useText ? readSentence($('noteInput').value) : readSentence('');
-  const dummy = { kind:item.kind, t:0.5, timbre:item.timbre, buffer:item.buffer, mod:m };
-  ensureAudio();
+  const ac=ensureAudio(); ensureMaster();
+  if(ac.state==='suspended') ac.resume();
+  const dummy = {
+    kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer, mod:m,
+    pitch: BASE_FREQ*Math.pow(2, PENTA[4]/12),   // 기준음 (줄과 무관)
+    rate: 1,
+  };
   playFrag(dummy, null, 1, 1.1);
 }
 function closeNote(withText){
@@ -770,11 +775,14 @@ function playFrag(f, at, dry, baseDur){
   const m=f.mod||readSentence('');
   const t0 = at!=null ? at : ac.currentTime;
   const n = Math.max(1, Math.min(3, m.repeats||1));
+  // 줄이 아직 없을 때(문장 쓰기 미리듣기 등)는 기준음으로 대신 울린다
+  const freq = (f.pitch!=null) ? f.pitch : (ready() && f.t!=null ? pitchAt(f.t) : BASE_FREQ*Math.pow(2, PENTA[4]/12));
+  const rate = (f.rate!=null)  ? f.rate  : (ready() && f.t!=null ? rateAt(f.t) : 1);
   for(let i=0;i<n;i++){
     const when = t0 + i*GRID;
     const gain = 1 / (1 + i*0.9);
-    if(f.kind==='photo') playImageTone(f.timbre, pitchAt(f.t), (baseDur||1.3), dry, when, m, gain);
-    else playBuffer(f.buffer, rateAt(f.t)*m.oct, gain, dry, when, m);
+    if(f.kind==='photo') playImageTone(f.timbre, freq, (baseDur||1.3), dry, when, m, gain);
+    else playBuffer(f.buffer, rate*m.oct, gain, dry, when, m);
   }
 }
 function ring(f, ms){ f.el.classList.add('ringing'); setTimeout(()=>f.el.classList.remove('ringing'), ms); }
