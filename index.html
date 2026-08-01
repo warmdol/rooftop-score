@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>옥상 악보 — 받아 적는 연주자들</title>
 <style>
   :root {
@@ -171,7 +174,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span>
+  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v8</span>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -335,8 +338,34 @@ const BASE_FREQ = 220; // A3 기준
 function toast(msg, ms=2600){ const t=$('toast'); t.textContent=msg; t.style.display='block';
   clearTimeout(t._tm); t._tm=setTimeout(()=>t.style.display='none', ms); }
 function hint(msg){ const h=$('hint'); if(!msg){h.style.display='none';return;} h.textContent=msg; h.style.display='block'; }
-function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  return audioCtx;
+}
+/* iOS 잠금 해제: 첫 터치에 무음 버퍼를 한 번 재생해둔다 */
+let audioUnlocked=false;
+function unlockAudio(){
+  const ac=ensureAudio();
+  if(audioUnlocked) return ac;
+  try{
+    const b=ac.createBuffer(1,1,22050);
+    const s=ac.createBufferSource(); s.buffer=b; s.connect(ac.destination); s.start(0);
+    audioUnlocked=true;
+  }catch(e){}
+  return ac;
+}
+document.addEventListener('pointerdown', unlockAudio, {once:true, capture:true});
+/* 소리가 안 들릴 때 원인을 알려준다 */
+function audioCheck(){
+  const ac=ensureAudio();
+  if(ac.state!=='running'){
+    ac.resume();
+    toast('소리를 깨우는 중… 한 번 더 눌러주세요');
+    return false;
+  }
+  return true;
+}
 function px(){ return { w: stage.clientWidth, h: stage.clientHeight }; }
 
 /* ---------- 줄(곡선): 손가락 트레이스 기반 ---------- */
@@ -569,8 +598,8 @@ function notePreview(useText){
   if(!notePending) return;
   const item=notePending;
   const m = useText ? readSentence($('noteInput').value) : readSentence('');
-  const ac=ensureAudio(); ensureMaster();
-  if(ac.state==='suspended') ac.resume();
+  const ac=unlockAudio(); ensureMaster();
+  if(!audioCheck()) return;
   const dummy = {
     kind:item.kind, t:null, timbre:item.timbre, buffer:item.buffer, mod:m,
     pitch: item.pitch || pitchOfTimbre(item.timbre),   // 조각이 가진 음
