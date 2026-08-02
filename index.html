@@ -311,7 +311,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v51</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v52</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -1975,6 +1975,11 @@ function play(){
 
 /* ---------- 사진 채집 ---------- */
 $('btnPhoto').addEventListener('click', ()=>{
+  $('basketSheet').style.display='none';   // 열린 시트가 카메라 화면을 덮지 않게
+  if((state.stage||0)<4 && state.calibrating){   // 잔여 줄긋기 모드 해제
+    state.calibrating=false; trace.active=false; trace.pts=[];
+    $('segSheet').style.display='none'; hint('');
+  }
   if(state.mode==='live' && window._liveVideoReady){ captureFromLive(); }
   else $('fileFrag').click();
 });
@@ -2164,7 +2169,7 @@ $('recStop').addEventListener('click', stopRec);
 let demoN=0;
 $('btnDemo').addEventListener('click', ()=>{
   demoN++;
-  if(demoN%2===1){
+  if(true){   // 녹음 채집 제거 후: 데모는 항상 사진 조각
     // 데모 사진: 불규칙 윤곽으로 오려진 조각
     const c=document.createElement('canvas'); c.width=c.height=300;
     const g=c.getContext('2d');
@@ -2301,6 +2306,11 @@ function showWaiting(){
 }
 function showStage(n, isCatchUp){
   state.transit=false;
+  if(n<4){   // 수거 구간: 줄긋기·구간·배치 상태가 남아 있으면 촬영을 막으므로 청소
+    state.calibrating=false; trace.active=false; trace.pts=[];
+    state.pendingPlace=null; state.placing=null;
+    $('segSheet').style.display='none';
+  }
   if(n===0 && !isCatchUp && state.frags.length) clearAllLaundry();   // 개점 = 새 영업일
   state.stage=n;
   state.lastStageCatchUp=!!isCatchUp;   // 나레이션: 따라잡기 카드는 소리 없이
