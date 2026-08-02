@@ -283,7 +283,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v19</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v20</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -1168,6 +1168,7 @@ function closeNote(withScent){
   if(!item) return;
   const sc = withScent ? scentById(item.scent) : null;
   item.note   = sc ? sc.name : '';
+  item.scentId= sc ? sc.id : null;
   item.recipe = sc ? sc.recipe : null;
   item.mod    = readSentence('');
   basketAdd(item);
@@ -1249,6 +1250,7 @@ function beginPlacing(item){
     const img=document.createElement('img'); img.src=item.img; el.insertBefore(img, el.querySelector('.del'));
     f={id:++fragSeq, kind:'photo', t:null, el, img:item.img, timbre:item.timbre,
        pitch:item.pitch||pitchOfTimbre(item.timbre), recipe:item.recipe||null,
+       scentId:item.scentId||null,
        note:item.note||'', mod:item.mod||readSentence('')};
   } else {
     const el=makeFragEl('ribbon');
@@ -1313,7 +1315,7 @@ function startPlacing(f, msg){
     if(!ready()) return;
     const {t,dist}=nearestT(x,y);
     if(dist<110){
-      f.t=t;
+      f.t=RopeShare.freeSlot(t);      // 이미 걸린 빨래는 비켜 건다
       f.hungAt=Date.now();
       f.el.style.opacity='1';
       f.el.classList.remove('near','pending');
@@ -1322,6 +1324,7 @@ function startPlacing(f, msg){
       setTimeout(()=>{ if(!state.placing) hint(''); }, 3500);
       positionFrag(f);
       previewFrag(f);
+      RopeShare.publish(f);
     } else {
       hint('조각을 줄 가까이까지 끌어 올려 놓아주세요');
     }
@@ -1336,6 +1339,7 @@ function bindFrag(f){
   });
   f.el.addEventListener('pointermove', e=>{
     if(!dragging) return;
+    if(f.remote){ return; }           // 남이 넌 조각은 옮길 수 없다
     moved=true;
     const r=stage.getBoundingClientRect();
     const {t}=nearestT(e.clientX-r.left, e.clientY-r.top);
@@ -1347,14 +1351,100 @@ function bindFrag(f){
       if(state.selected && state.selected!==f) state.selected.el.classList.remove('selected');
       f.el.classList.toggle('selected');
       state.selected = f.el.classList.contains('selected') ? f : null;
+    } else {
+      RopeShare.move(f);
     }
   });
   f.el.querySelector('.del').addEventListener('click', e=>{
     e.stopPropagation();
+    if(f.remote){ toast('다른 연주자가 넌 조각은 내릴 수 없어요'); return; }
     state.frags=state.frags.filter(x=>x!==f); f.el.remove();
+    RopeShare.remove(f);
     toast('조각을 내렸습니다');
   });
 }
+
+/* ---------- 같이 널기: 한 줄을 여덟 폰이 나눠 쓴다 ----------
+   빨랫줄 좌표 t(왼끝 0 ~ 오른끝 1)는 모두가 같은 실제 줄을 긋기에 기기 간에 통한다.
+   조각은 이미지 썸네일 + 소리 설계도(음색·음·향 id)로만 오가고, 소리는 받는 폰이 합성한다. */
+let remoteMap={};
+const pendingRemote=[];
+function spawnRemote(key, d){
+  if(remoteMap[key] || !d || !d.img) return;
+  const el=makeFragEl('cutout');
+  const img=document.createElement('img'); img.src=d.img; el.insertBefore(img, el.querySelector('.del'));
+  const f={id:'r_'+key, kind:'photo', t:(typeof d.t==='number'?Math.max(0,Math.min(1,d.t)):0.5),
+    el, img:d.img, timbre:d.timbre||null,
+    pitch:d.pitch||null,
+    recipe:(d.scent && scentById(d.scent)) ? scentById(d.scent).recipe : null,
+    scentId:d.scent||null, note:d.note||'', mod:readSentence(''),
+    remote:true, hungAt:Date.now()};
+  if(!f.pitch) f.pitch = f.timbre ? pitchOfTimbre(f.timbre) : 440;
+  if(f.note){ const cap=document.createElement('span'); cap.className='note'; cap.textContent=f.note;
+    f.el.insertBefore(cap, f.el.querySelector('.del')); }
+  bindFrag(f);
+  remoteMap[key]=f;
+  state.frags.push(f);
+  if(ready()){ positionFrag(f); previewFrag(f); toast('🧺 다른 연주자가 조각을 널었어요'); }
+  else { f.el.style.display='none'; pendingRemote.push(f); }
+}
+setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조각들이 한꺼번에 걸린다
+  if(ready() && pendingRemote.length){
+    const batch=pendingRemote.splice(0).filter(f=>state.frags.includes(f)); // 대기 중 삭제된 조각 제외
+    if(!batch.length) return;
+    batch.forEach(f=>{ f.el.style.display=''; positionFrag(f); });
+    toast('🧺 먼저 도착한 연주자들의 조각 '+batch.length+'개가 줄에 걸렸어요', 3000);
+  }
+}, 800);
+
+const RopeShare = {
+  pid: localStorage.getItem('okj_pid') ||
+       (()=>{ const v=Math.random().toString(36).slice(2,8); localStorage.setItem('okj_pid',v); return v; })(),
+  room: new URLSearchParams(location.search).get('room') || 'main',
+  api: null,
+  freeSlot(t){
+    let tt=t, guard=0;
+    while(guard++<40 && state.frags.some(x=>x.t!==null && Math.abs(x.t-tt)<0.028)){
+      tt+=0.033; if(tt>0.99) tt-=0.97;
+    }
+    return Math.max(0, Math.min(1, tt));
+  },
+  thumb(dataUrl, cb){
+    const im=new Image();
+    im.onload=()=>{
+      const M=256, sc=Math.min(1, M/Math.max(im.width, im.height));
+      const cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(im.width*sc)); cv.height=Math.max(1,Math.round(im.height*sc));
+      cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+      cb(cv.toDataURL('image/png'));
+    };
+    im.onerror=()=>cb(dataUrl);
+    im.src=dataUrl;
+  },
+  publish(f){
+    if(!this.api || f.kind!=='photo') return;
+    this.thumb(f.img, img=>{
+      const tb=f.timbre;
+      this.api.push({ pid:this.pid, t:f.t, img,
+        timbre: tb?{bright:tb.bright, sat:tb.sat, hue:tb.hue, tex:tb.tex}:null,
+        pitch:f.pitch||null, scent:f.scentId||null, note:f.note||'', at:Date.now(),
+      }).then(key=>{ f._fbkey=key; }).catch(()=>{});
+    });
+  },
+  move(f){ if(this.api && f._fbkey) this.api.update(f._fbkey, {t:f.t}).catch(()=>{}); },
+  remove(f){ if(this.api && f._fbkey) this.api.remove(f._fbkey).catch(()=>{}); },
+  onRemote(type, key, d){
+    if(d && d.pid===this.pid) return;
+    if(type==='add') spawnRemote(key, d);
+    else if(type==='change'){ const f=remoteMap[key]; if(f && d && typeof d.t==='number'){ f.t=d.t; if(ready()) positionFrag(f); } }
+    else if(type==='remove'){ const f=remoteMap[key]; if(f){ f.el.remove(); state.frags=state.frags.filter(x=>x!==f); delete remoteMap[key]; } }
+  },
+  status(st){
+    const el=$('shareDot'); if(!el) return;
+    el.textContent = st==='on' ? '🟢 같이 널기' : st==='wait' ? '🟡 연결 중' : '⚪ 혼자 널기';
+  },
+};
+RopeShare.status('off');
 
 /* ---------- 스테이지 탭: 보정 & 배치 ---------- */
 stage.addEventListener('pointerdown', e=>{
@@ -1963,6 +2053,38 @@ if(new URLSearchParams(location.search).has('demo')){
 }
 window.addEventListener('resize', ()=>{ drawRope(); repositionAll(); });
 (function loop(){ drawRope(); gyroApply(); requestAnimationFrame(loop); })();
+</script>
+<script type="module">
+/* Realtime Database 주소를 아래에 넣으면 '같이 널기'가 켜집니다. 비워두면 혼자 모드. */
+const FB_DB_URL = "";
+if (FB_DB_URL) {
+  RopeShare.status('wait');
+  try {
+    const {initializeApp} = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+    const {getDatabase, ref, push, set, update, remove, onChildAdded, onChildChanged, onChildRemoved, onValue} =
+      await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js');
+    const app = initializeApp({
+      apiKey: "AIzaSyBoaaT26QPgGLb6-f6ixWJ1v8RagmXOD94",
+      authDomain: "rooftop-score.firebaseapp.com",
+      projectId: "rooftop-score",
+      databaseURL: FB_DB_URL,
+    });
+    const db = getDatabase(app);
+    const path = 'rooms/' + RopeShare.room + '/frags';
+    const base = ref(db, path);
+    RopeShare.api = {
+      push: (d)=>{ const r = push(base); return set(r, d).then(()=>r.key); },
+      update: (key, d)=>update(ref(db, path + '/' + key), d),
+      remove: (key)=>remove(ref(db, path + '/' + key)),
+    };
+    onChildAdded(base,   sn=>RopeShare.onRemote('add',    sn.key, sn.val()));
+    onChildChanged(base, sn=>RopeShare.onRemote('change', sn.key, sn.val()));
+    onChildRemoved(base, sn=>RopeShare.onRemote('remove', sn.key, null));
+    onValue(ref(db, '.info/connected'), sn=>RopeShare.status(sn.val() ? 'on' : 'wait'));
+  } catch (e) {
+    RopeShare.status('off');
+  }
+}
 </script>
 </body>
 </html>
