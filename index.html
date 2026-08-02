@@ -283,7 +283,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v21</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v22</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -292,6 +292,7 @@
   <button class="tool" id="btnPhoto">📷<br>찍어 담기</button>
   <button class="tool" id="btnRec" style="display:none">🎙<br>녹음해 담기</button>
   <button class="tool" id="btnBasket">🧺<br>바구니<span id="basketBadge"></span></button>
+  <button class="tool" id="btnNext">🚶<br>다음 장소</button>
   <button class="tool primary" id="btnPlay">▶<br>연주</button>
   <button class="tool" id="btnDemo" style="display:none">✚<br>데모</button>
   <button class="tool" id="btnCal">↺<br>줄긋기</button>
@@ -302,16 +303,12 @@
     <path d="M8,14 Q150,52 292,20" fill="none" stroke="#ffd97a" stroke-width="2" stroke-dasharray="6 6" opacity=".8"/>
     <circle cx="8" cy="14" r="4" fill="#ffd97a"/><circle cx="292" cy="20" r="4" fill="#ffd97a"/>
   </svg>
-  <h2>수거 나가실 차례입니다</h2>
-  <p>옥상까지 올라가는 길에,<br>
-     <b>어제도 거기 있었을 것 같은 것들</b>을 주워 오세요.<br><br>
-     📷 눈에 밟히면 찍어서 오리고<br>
-     🧺 바구니에 담아 오면 됩니다.<br>
-     조각은 오려내는 순간부터 소리를 냅니다.</p>
-  <p style="color:var(--accent); font-size:12.5px; margin-top:-4px; max-width:330px; line-height:1.7">
-    ⚠️ 기기의 <b>무음 모드를 끄고 볼륨을 올려주세요</b><br>무음 상태에선 조각의 소리가 들리지 않아요.
+  <h2 id="stageTitle"></h2>
+  <p id="stageBody"></p>
+  <p id="muteWarn" style="color:var(--accent); font-size:12.5px; margin-top:-4px; max-width:330px; line-height:1.7">
+    ⚠️ 기기의 <b>무음 모드를 끄고 볼륨을 올려주세요</b><br>무음 상태에선 빨랫감의 소리가 들리지 않아요.
   </p>
-  <button id="missionGo">수거 나가기</button>
+  <button id="missionGo"></button>
 </div>
 
 <div id="basketSheet">
@@ -1209,6 +1206,7 @@ function addSoundFrag(buffer){
   askNote({kind:'sound', buffer, rate:1, note:'', mod:readSentence('')});
 }
 function basketAdd(item){
+  item.alley = state.stage||1;
   state.basket.push(item);
   updateBasket();
   toast('🧺 빨래바구니에 담았습니다 ('+state.basket.length+')');
@@ -1977,8 +1975,41 @@ $('btnDemo').addEventListener('click', ()=>{
 });
 
 /* ---------- 미션 인트로 ---------- */
+/* ---------- 동선 = 서사: 스튜디오(개점) → 골목1 → 골목2 → 옥상(일광건조) ----------
+   장소에 도착할 때마다 사장님 대본 카드가 뜨고, 연주·줄긋기는 옥상에서 열린다. */
+const STAGES = {
+  1:{ label:'골목 1', btn:'수거 시작',
+      title:'첫번째 골목에 도착했습니다',
+      body:'곧 사라질 수도 있는,<br>하지만 남기고 싶은 <b>빨랫감</b>을 찾아주세요.<br><br>'
+          +'📷 눈에 밟히면 찍어서 오리고<br>🧺 향을 골라 바구니에 담아 두세요.' },
+  2:{ label:'골목 2', btn:'수거 계속',
+      title:'두번째 골목에 도착했습니다',
+      body:'빨랫감을 찾아주세요.<br><br>🧺 담아둔 빨랫감은 옥상에서 한꺼번에 널게 됩니다.' },
+  3:{ label:'옥상 · 일광건조', btn:'줄 긋고 널기',
+      title:'이제, 일광건조가 필요합니다',
+      body:'빨랫감을 모두 각자만의 방식으로 세탁해 주셨나요?<br><br>'
+          +'눈앞의 빨랫줄을 <b>왼쪽 끝에서 오른쪽 끝으로</b> 따라 긋고,<br>'
+          +'빨랫감이 가장 <b>어울린다고 생각하는 위치</b>에 널어주세요.<br><br>'
+          +'우리는 이 빨래들을 소리로 번역해서,<br>동네에게 다시 들려줄 것입니다.' },
+};
+function showStage(n){
+  state.stage=n;
+  const st=STAGES[n];
+  $('stageTitle').textContent=st.title;
+  $('stageBody').innerHTML=st.body;
+  $('missionGo').textContent=st.btn;
+  $('mode-label').textContent=st.label;
+  $('muteWarn').style.display = n===1 ? '' : 'none';
+  $('btnNext').style.display  = n<3 ? '' : 'none';
+  $('btnPlay').style.display  = n>=3 ? '' : 'none';
+  $('btnCal').style.display   = n>=3 ? '' : 'none';
+  $('missionIntro').style.display='flex';
+}
+$('btnNext').addEventListener('click', ()=>{ showStage(Math.min(3, (state.stage||1)+1)); });
+
 $('missionGo').addEventListener('click', ()=>{
   $('missionIntro').style.display='none';
+  if(state.stage===3 && !ready()) startCalibration();
   hint('흩어진 시간의 조각을 모으는 중 🧺');
 });
 
@@ -2008,7 +2039,7 @@ function enterStage(modeLabel){
   $('topbar').style.display='flex';
   $('toolbar').style.display='flex';
   $('mode-label').textContent=modeLabel;
-  $('missionIntro').style.display='flex';
+  showStage(1);
 }
 $('setupLive').addEventListener('click', async ()=>{
   ensureAudio();
