@@ -283,7 +283,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v20</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v21</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -2056,7 +2056,7 @@ window.addEventListener('resize', ()=>{ drawRope(); repositionAll(); });
 </script>
 <script type="module">
 /* Realtime Database 주소를 아래에 넣으면 '같이 널기'가 켜집니다. 비워두면 혼자 모드. */
-const FB_DB_URL = "";
+const FB_DB_URL = "https://rooftop-score-default-rtdb.asia-southeast1.firebasedatabase.app";
 if (FB_DB_URL) {
   RopeShare.status('wait');
   try {
