@@ -300,7 +300,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v29</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v30</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -1468,11 +1468,14 @@ const RopeShare = {
     showStage(n);   // 내 폰은 즉시 — 서버 왕복을 기다리지 않는다
     if(this.api && this.api.stage) this.api.stage({ n, at: Date.now() + this.svOffset });
   },
+  _stageInit: false,
   onStage(d){
     if(!d || !d.n || d.at===this._lastStageAt) return;
     this._lastStageAt = d.at;
-    if(!state.entered){ this.pendingStage = d.n; return; }   // 아직 개점 전인 폰은 개점 후 따라잡기
-    if(d.n !== state.stage) showStage(d.n);
+    const isCatchUp = !this._stageInit;   // 접속 시 남아 있던 진행 상태
+    this._stageInit = true;
+    if(!state.entered){ this.pendingStage = d.n; return; }
+    if(d.n !== state.stage) showStage(d.n, isCatchUp);
   },
   api: null,
   freeSlot(t){
@@ -1524,11 +1527,19 @@ const RopeShare = {
       startCueCountdown(Date.now() + 3000);   // 혼자 모드: 내 폰만 카운트다운
     }
   },
+  _cueInit: false,
   onCue(d){
+    if(!this._cueInit){
+      // 접속 시점에 방에 남아 있던 큐는 기준선으로만 삼는다 —
+      // 재생은 접속 '이후' 진행자가 새로 누른 큐에만 반응
+      this._cueInit = true;
+      if(d && d.at) this._lastCue = d.at;
+      return;
+    }
     if(!d || !d.at || d.at===this._lastCue) return;
     this._lastCue = d.at;
     const localAt = d.at - this.svOffset;
-    if(localAt < Date.now() - 2000) return;   // 지난 큐(새로 접속한 폰)는 무시
+    if(localAt < Date.now() - 2000) return;
     startCueCountdown(localAt);
   },
   status(st){
@@ -2139,8 +2150,9 @@ const STAGES = {
           +'당신이 밟고 있는 이 땅은<br>이 진동을 기억할 것입니다.<br><br>'
           +'진동은 결국 휘발되지만,<br>기억은 오래 남습니다.' },
 };
-function showStage(n){
+function showStage(n, isCatchUp){
   state.stage=n;
+  state.lastStageCatchUp=!!isCatchUp;   // 나레이션: 따라잡기 카드는 소리 없이
   const st=STAGES[n];
   $('stageTitle').innerText=st.title;
   $('stageBody').innerHTML=st.body;
