@@ -6,7 +6,9 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>옥상 악보 — 받아 적는 연주자들</title>
+<title>파프리 콤퓨타세탁소</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
 <style>
   :root {
     --ink: #f2efe9;
@@ -187,6 +189,82 @@
     padding:9px 16px; border-radius:12px; font-size:12.5px; display:none; max-width:86vw; }
 
   input[type=file] { display:none; }
+
+  /* ================= 파프리 콤퓨타세탁소 간판 테마 ================= */
+  :root {
+    --lg: #22a13d;        /* 간판 초록 */
+    --lg-dark: #157a2b;
+    --lb: #1c4fa0;        /* 차양 남색 */
+    --paper: #f7f9f4;     /* 전단지 종이 */
+    --paper-ink: #21301f;
+  }
+  .jua, #topbar h1, #setup h1, #missionIntro h2, #noteSheet h3, #basketSheet h3,
+  #setup button, #missionIntro button, #noteSheet .row button, .scent .nm, .tool
+  { font-family:'Jua', system-ui, sans-serif; letter-spacing:0.2px; }
+
+  /* 간판 상단바: 초록 바탕 + 남색 차양 줄무늬 */
+  #topbar { background:linear-gradient(180deg, var(--lg) 0%, var(--lg-dark) 100%);
+    border-bottom:none; box-shadow:0 2px 10px rgba(0,0,0,.35); }
+  #topbar::after { content:''; position:absolute; left:0; right:0; bottom:-8px; height:8px;
+    background:repeating-linear-gradient(90deg, var(--lb) 0 22px, #fff 22px 44px); opacity:.92; }
+  #topbar h1 { font-size:17px; font-weight:400; color:#fff;
+    text-shadow:1.5px 1.5px 0 var(--lb); }
+  #topbar .sub { color:#eaffe9; }
+  #topbar .sign-sub { background:var(--lb); color:#fff; padding:2px 8px; border-radius:999px;
+    font-size:10px; }
+
+  /* 개점 화면: 가게 앞 */
+  #setup { background:var(--paper); color:var(--paper-ink); }
+  #setup::before { content:''; position:absolute; top:0; left:0; right:0; height:16px;
+    background:repeating-linear-gradient(90deg, var(--lb) 0 26px, #fff 26px 52px); }
+  #setup h1 { font-size:27px; font-weight:400; color:var(--lg-dark);
+    text-shadow:1.5px 1.5px 0 rgba(28,79,160,.28); }
+  #setup p { color:#47563f; }
+  #setup button.primary { background:var(--lg); color:#fff; border:none; font-size:17px;
+    box-shadow:0 3px 0 var(--lg-dark); }
+  #setup #setupNote { color:#7b8a72; }
+
+  /* 수거 전단지 */
+  #missionIntro { background:var(--paper); color:var(--paper-ink); }
+  #missionIntro::before { content:''; position:absolute; top:0; left:0; right:0; height:16px;
+    background:repeating-linear-gradient(90deg, var(--lb) 0 26px, #fff 26px 52px); }
+  #missionIntro .rope-art path { stroke:var(--lg); }
+  #missionIntro .rope-art circle { fill:var(--lg); }
+  #missionIntro h2 { color:var(--lg-dark); font-weight:400; font-size:22px; }
+  #missionIntro p { color:#47563f; }
+  #missionIntro p b { color:var(--lb); }
+  #missionIntro p[style] { color:#a06a00 !important; }
+  #missionIntro button { background:var(--lg); color:#fff; border:none;
+    box-shadow:0 3px 0 var(--lg-dark); font-size:16px; }
+
+  /* 코스 선택판(향 시트): 세탁 코스 안내판 */
+  #noteSheet { background:var(--paper); color:var(--paper-ink); }
+  #noteSheet::before { content:''; position:absolute; top:0; left:0; right:0; height:14px;
+    background:repeating-linear-gradient(90deg, var(--lb) 0 24px, #fff 24px 48px); }
+  #noteSheet h3 { color:var(--lg-dark); font-weight:400; font-size:18px; }
+  #noteSheet .sub { color:#5d6d55; }
+  #noteSheet .scent { background:#fff; border:2px solid #cfe0c8; color:var(--paper-ink); border-radius:12px;
+    box-shadow:0 2px 0 rgba(0,0,0,.06); }
+  #noteSheet .scent .nm { font-weight:400; color:#2c3a26; }
+  #noteSheet .scent.on { border-color:var(--lg); background:#e8f7e6; color:var(--lg-dark);
+    box-shadow:0 2px 0 var(--lg-dark); }
+  #noteSheet .scent.on .nm { color:var(--lg-dark); }
+  #scentDesc { color:var(--lb); font-weight:600; }
+  #noteSheet .row button { background:#fff; border:2px solid #cfe0c8; color:#2c3a26; }
+  #noteSheet .row button.primary { background:var(--lg); border-color:var(--lg); color:#fff;
+    box-shadow:0 3px 0 var(--lg-dark); }
+
+  /* 바구니: 수거함 */
+  #basketSheet { background:var(--paper); color:var(--paper-ink); border-top:4px solid var(--lg); }
+  #basketSheet h3 { color:var(--lg-dark); font-weight:400; }
+  #basketSheet .note { color:#5d6d55; }
+
+  /* 도구 버튼: 간판 아크릴 버튼 */
+  button.tool { background:rgba(255,255,255,.92); color:#1f3d1a; border:none;
+    box-shadow:0 2px 0 rgba(0,0,0,.25); font-weight:400; }
+  button.tool.primary { background:var(--lg); color:#fff; box-shadow:0 2px 0 var(--lg-dark); }
+
+  #toast { background:var(--lb); color:#fff; border:none; }
 </style>
 </head>
 <body>
@@ -201,7 +279,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>옥상 악보</h1><span class="sub" id="mode-label"></span><span class="sub" id="ver">v18</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v19</span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -220,15 +298,16 @@
     <path d="M8,14 Q150,52 292,20" fill="none" stroke="#ffd97a" stroke-width="2" stroke-dasharray="6 6" opacity=".8"/>
     <circle cx="8" cy="14" r="4" fill="#ffd97a"/><circle cx="292" cy="20" r="4" fill="#ffd97a"/>
   </svg>
-  <h2>흩어진 시간의 조각을 모아 오세요</h2>
-  <p>오래 자리를 지켜온 존재들이 간직한 기억들 —<br>
-     공원의 웃음소리, 낮잠 자는 고양이, 누군가의 하루.<br><br>
-     📷 눈에 밟히는 것을 <b>찍어서 오려</b><br>
-     🧺 바구니에 담아 오세요.</p>
+  <h2>수거 나가실 차례입니다</h2>
+  <p>옥상까지 올라가는 길에,<br>
+     <b>어제도 거기 있었을 것 같은 것들</b>을 주워 오세요.<br><br>
+     📷 눈에 밟히면 찍어서 오리고<br>
+     🧺 바구니에 담아 오면 됩니다.<br>
+     조각은 오려내는 순간부터 소리를 냅니다.</p>
   <p style="color:var(--accent); font-size:12.5px; margin-top:-4px; max-width:330px; line-height:1.7">
     ⚠️ 기기의 <b>무음 모드를 끄고 볼륨을 올려주세요</b><br>무음 상태에선 조각의 소리가 들리지 않아요.
   </p>
-  <button id="missionGo">조각을 모으러 가기</button>
+  <button id="missionGo">수거 나가기</button>
 </div>
 
 <div id="basketSheet">
@@ -238,10 +317,12 @@
 </div>
 
 <div id="setup">
-  <h1>옥상 악보</h1>
-  <p>흩어진 시간의 조각을 모아 빨랫줄에 걸면,<br>
-     마르면서 선명해진 기억들이 하나의 노래가 됩니다.</p>
-  <button class="primary" id="setupLive">시작하기</button>
+  <img id="shopLogo" src="logo.png" alt="" style="width:min(190px,52vw); border-radius:50%;"
+       onerror="this.style.display='none'">
+  <h1>파프리 콤퓨타세탁소</h1>
+  <p>오늘 하루만 영업합니다.<br>
+     오늘의 세탁물은— 이 동네가 벗어놓은 하루.</p>
+  <button class="primary" id="setupLive">개점하기</button>
   <button id="setupPhoto" style="display:none">🖼 줄 사진으로 시작</button>
   <button id="setupDemo" style="display:none">✨ 데모 이미지로 시작</button>
   <p id="setupNote" style="font-size:11px"></p>
