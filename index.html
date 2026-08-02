@@ -309,7 +309,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v44</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v45</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -1473,8 +1473,9 @@ setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조�
    HTMLAudio 대신 WebAudio 버퍼로 재생 — 제스처 없이 도착하는 방송에서도 iOS에서 소리가 난다. */
 const FB_CONFIGURED = true;   // 방송(Firebase) 사용 여부 — 연결 지연과 무관한 고정 사실
 const NARR_SEQ = {
-  0: ['narr/narr0.mp3','narr/narr1.mp3','narr/narr2.mp3','narr/narr3.mp3','narr/ring.mp3'],
-  // 녹음이 오면 추가: 1구역1, 2구역2, 3세탁, 4건조완료
+  0: ['narr/narr0.mp3','narr/narr1.mp3','narr/narr2.mp3','narr/narr3.mp3','narr/ring.mp3','narr/go.mp3'],
+  1: ['narr/zone1_a.mp3','narr/zone1_b.mp3','narr/zone1_c.mp3'],
+  // 녹음이 오면 추가: 2구역2, 3세탁, 4건조완료
   // 0번 끝의 [따르릉—딸깍 / 자 이제 시간이 됐네요] 녹음도 오면 0번 배열 끝에 추가
 };
 const narrBufs = {};
@@ -2244,6 +2245,18 @@ function showClosing(){
   $('btnNext').innerHTML='📳<br>재가동';
   $('missionIntro').style.display='flex';
 }
+function showTransit(){
+  $('stageTitle').innerText='이제 나가봅시다';
+  $('stageBody').innerHTML='바구니를 챙겨<br>스튜디오 문을 나서세요.<br><br>'
+    +'사장님을 따라<br>첫번째 구역으로 이동합니다.';
+  $('missionGo').style.display='none';
+  $('muteWarn').style.display='none';
+  const leader = RopeShare.isHost || !FB_CONFIGURED;
+  $('btnNext').style.display = leader ? '' : 'none';
+  $('btnNext').innerHTML='🚶<br>구역 1 도착';
+  $('mode-label').textContent='이동 중';
+  $('missionIntro').style.display='flex';
+}
 function showWaiting(){
   $('stageTitle').innerText='출근 완료 🧺';
   $('stageBody').innerHTML='사장님이 곧 영업을 시작합니다.<br>화면을 켠 채 잠시만 기다려주세요.'
@@ -2286,15 +2299,15 @@ function showStage(n, isCatchUp){
   if(!isCatchUp) playNarr(n);   // 따라잡기 카드는 소리 없이
 }
 $('btnNext').addEventListener('click', ()=>{
-  if((state.stage||0)>=4){ $('missionIntro').style.display='none'; RopeShare.cueAll(); }   // 앙코르
-  else RopeShare.broadcastStage(Math.min(4, (state.stage||1)+1));
+  const cur = (typeof state.stage==='number') ? state.stage : 0;
+  if(cur>=4){ $('missionIntro').style.display='none'; RopeShare.cueAll(); }   // 앙코르
+  else RopeShare.broadcastStage(Math.min(4, cur+1));
 });
 
 $('missionGo').addEventListener('click', ()=>{
   if(state.closing){ state.closing=false; $('missionIntro').style.display='none'; return; }
   if(state.stage===0){
-    if(RopeShare.isHost || !FB_CONFIGURED) RopeShare.broadcastStage(1);
-    else $('missionIntro').style.display='none';   // 직원은 읽고 닫기 — 사장님이 곧 넘겨준다
+    showTransit();   // 스튜디오를 나서는 동안 — 구역1 카드는 사장님 큐로
     return;
   }
   $('missionIntro').style.display='none';
