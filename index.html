@@ -309,7 +309,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v45</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v46</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -335,6 +335,8 @@
   <p id="muteWarn" style="color:var(--accent); font-size:12.5px; margin-top:-4px; max-width:330px; line-height:1.7">
     ⚠️ 기기의 <b>무음 모드를 끄고 볼륨을 올려주세요</b><br>무음 상태에선 빨랫감의 소리가 들리지 않아요.
   </p>
+  <button id="narrSkip" style="display:none; padding:8px 14px; border-radius:10px;
+    border:1.5px dashed #9db894; background:transparent; color:#5d6d55; font-size:12px">⏭ 나레이션 건너뛰기</button>
   <button id="missionGo"></button>
 </div>
 
@@ -2243,18 +2245,21 @@ function showClosing(){
   $('muteWarn').style.display='none';
   $('btnNext').style.display = (RopeShare.isHost || !FB_CONFIGURED) ? '' : 'none';
   $('btnNext').innerHTML='📳<br>재가동';
+  $('narrSkip').style.display='none';
   $('missionIntro').style.display='flex';
 }
 function showTransit(){
+  state.transit=true;
   $('stageTitle').innerText='이제 나가봅시다';
   $('stageBody').innerHTML='바구니를 챙겨<br>스튜디오 문을 나서세요.<br><br>'
     +'사장님을 따라<br>첫번째 구역으로 이동합니다.';
-  $('missionGo').style.display='none';
-  $('muteWarn').style.display='none';
   const leader = RopeShare.isHost || !FB_CONFIGURED;
-  $('btnNext').style.display = leader ? '' : 'none';
-  $('btnNext').innerHTML='🚶<br>구역 1 도착';
+  if(leader){ $('missionGo').textContent='🚶 구역 1 도착 — 전체 큐'; $('missionGo').style.display=''; }
+  else $('missionGo').style.display='none';
+  $('btnNext').style.display='none';
+  $('muteWarn').style.display='none';
   $('mode-label').textContent='이동 중';
+  $('narrSkip').style.display='none';
   $('missionIntro').style.display='flex';
 }
 function showWaiting(){
@@ -2266,6 +2271,7 @@ function showWaiting(){
   $('missionGo').style.display='none';
   $('btnNext').style.display='none';
   $('muteWarn').style.display='';
+  $('narrSkip').style.display='none';
   $('missionIntro').style.display='flex';
   setTimeout(()=>{
     const b=document.getElementById('soloGo');
@@ -2277,6 +2283,7 @@ function showWaiting(){
   }, 0);
 }
 function showStage(n, isCatchUp){
+  state.transit=false;
   if(n===0 && !isCatchUp && state.frags.length) clearAllLaundry();   // 개점 = 새 영업일
   state.stage=n;
   state.lastStageCatchUp=!!isCatchUp;   // 나레이션: 따라잡기 카드는 소리 없이
@@ -2296,8 +2303,10 @@ function showStage(n, isCatchUp){
   $('btnPlay').style.display  = n>=3 ? '' : 'none';
   $('btnCal').style.display   = n>=3 ? '' : 'none';
   $('missionIntro').style.display='flex';
+  $('narrSkip').style.display = (leader && !isCatchUp && NARR_SEQ[n] && NARR_SEQ[n].length) ? '' : 'none';
   if(!isCatchUp) playNarr(n);   // 따라잡기 카드는 소리 없이
 }
+$('narrSkip').addEventListener('click', ()=>{ stopNarr(); $('narrSkip').style.display='none'; });
 $('btnNext').addEventListener('click', ()=>{
   const cur = (typeof state.stage==='number') ? state.stage : 0;
   if(cur>=4){ $('missionIntro').style.display='none'; RopeShare.cueAll(); }   // 앙코르
@@ -2306,6 +2315,7 @@ $('btnNext').addEventListener('click', ()=>{
 
 $('missionGo').addEventListener('click', ()=>{
   if(state.closing){ state.closing=false; $('missionIntro').style.display='none'; return; }
+  if(state.transit){ state.transit=false; RopeShare.broadcastStage(1); return; }
   if(state.stage===0){
     showTransit();   // 스튜디오를 나서는 동안 — 구역1 카드는 사장님 큐로
     return;
