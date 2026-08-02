@@ -300,7 +300,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v32</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v33</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -342,6 +342,7 @@
   <p>오늘 하루만 영업합니다.<br>
      오늘의 세탁물은— 이 동네가 벗어놓은 하루.</p>
   <button class="primary" id="setupLive">출근하기</button>
+  <button id="btnReset" style="display:none">🧹 영업 초기화 — 처음부터</button>
   <button id="setupPhoto" style="display:none">🖼 줄 사진으로 시작</button>
   <button id="setupDemo" style="display:none">✨ 데모 이미지로 시작</button>
   <p id="setupNote" style="font-size:11px"></p>
@@ -1457,6 +1458,15 @@ setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조�
   }
 }, 800);
 
+/* 새 영업일: 줄과 바구니를 모두 비운다 */
+function clearAllLaundry(){
+  state.frags.forEach(f=>{ if(f.el) f.el.remove(); });
+  state.frags=[]; remoteMap={}; pendingRemote.length=0;
+  state.basket=[]; state.selected=null; state.placing=null;
+  if(typeof updateBasket==='function') updateBasket();
+  $('edgeL').style.display='none'; $('edgeR').style.display='none';
+}
+
 const RopeShare = {
   pid: localStorage.getItem('okj_pid') ||
        (()=>{ const v=Math.random().toString(36).slice(2,8); localStorage.setItem('okj_pid',v); return v; })(),
@@ -1472,7 +1482,8 @@ const RopeShare = {
   onStage(d){
     const isCatchUp = !this._stageInit;   // 첫 구독 응답이면 따라잡기
     this._stageInit = true;
-    if(!d || typeof d.n!=='number' || d.at===this._lastStageAt) return;   // 0단계(개점)도 유효
+    if(!d){ this.pendingStage=null; this._lastStageAt=0; return; }   // 방이 비워짐(영업 초기화)
+    if(typeof d.n!=='number' || d.at===this._lastStageAt) return;    // 0단계(개점)도 유효
     this._lastStageAt = d.at;
     if(!state.entered){ this.pendingStage = d.n; return; }
     if(d.n !== state.stage) showStage(d.n, isCatchUp);
@@ -1548,7 +1559,25 @@ const RopeShare = {
   },
 };
 RopeShare.status('off');
-if(RopeShare.isHost){ $('hostMark').style.display='block'; $('setupLive').textContent='개점하기'; }
+if(RopeShare.isHost){
+  $('hostMark').style.display='block';
+  $('setupLive').textContent='개점하기';
+  $('btnReset').style.display='';
+}
+let resetArmed=false;
+$('btnReset').addEventListener('click', ()=>{
+  if(!resetArmed){
+    resetArmed=true;
+    $('btnReset').textContent='🧹 정말 처음부터? 다시 누르면 모든 빨래가 지워집니다';
+    setTimeout(()=>{ resetArmed=false; $('btnReset').textContent='🧹 영업 초기화 — 처음부터'; }, 4000);
+    return;
+  }
+  resetArmed=false;
+  $('btnReset').textContent='🧹 영업 초기화 — 처음부터';
+  clearAllLaundry();
+  if(RopeShare.api && RopeShare.api.reset) RopeShare.api.reset().then(()=>toast('🧹 새 영업일입니다 — 방이 비워졌어요'));
+  else toast('🧹 이 폰의 빨래를 비웠어요');
+});
 
 /* 카운트다운 → 정확히 같은 순간에 연주 시작 */
 let cueTimer=null;
@@ -2158,6 +2187,7 @@ function showWaiting(){
   $('missionIntro').style.display='flex';
 }
 function showStage(n, isCatchUp){
+  if(n===0 && !isCatchUp && state.frags.length) clearAllLaundry();   // 개점 = 새 영업일
   state.stage=n;
   state.lastStageCatchUp=!!isCatchUp;   // 나레이션: 따라잡기 카드는 소리 없이
   const st=STAGES[n];
@@ -2311,6 +2341,7 @@ if (FB_DB_URL) {
       remove: (key)=>remove(ref(db, path + '/' + key)),
       cue: (d)=>set(cueRef, d),
       stage: (d)=>set(ref(db, 'rooms/' + RopeShare.room + '/stage'), d),
+      reset: ()=>remove(ref(db, 'rooms/' + RopeShare.room)),
     };
     onValue(cueRef, sn=>RopeShare.onCue(sn.val()));
     onValue(ref(db, 'rooms/' + RopeShare.room + '/stage'), sn=>RopeShare.onStage(sn.val()));
