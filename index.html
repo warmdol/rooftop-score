@@ -309,7 +309,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v37</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v38</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -1474,7 +1474,8 @@ setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조�
 const FB_CONFIGURED = true;   // 방송(Firebase) 사용 여부 — 연결 지연과 무관한 고정 사실
 const NARR_SEQ = {
   0: ['narr/narr0.mp3','narr/narr1.mp3','narr/narr2.mp3','narr/narr3.mp3','narr/narr4.mp3'],
-  // 구역1/구역2/세탁/건조 나레이션은 녹음이 오면 여기에 추가
+  // 녹음이 오면 추가: 1구역1, 2구역2, 3세탁, 4건조완료
+  // 0번 끝의 [따르릉—딸깍 / 자 이제 시간이 됐네요] 녹음도 오면 0번 배열 끝에 추가
 };
 const narrBufs = {};
 function loadNarr(url){
@@ -1953,7 +1954,7 @@ function play(){
     });
     if(el < PLAY_SECONDS){ requestAnimationFrame(step); }
     else { state.playing=false; $('btnPlay').disabled=false; ph.style.display='none';
-           toast('기억은 오늘에서 내일로 이어집니다', 4000); }
+           if(state.stage>=4) showClosing(); else toast('기억은 오늘에서 내일로 이어집니다', 4000); }
   })();
 }
 
@@ -2198,13 +2199,14 @@ const STAGES = {
           +'우리가 찾아주지 않는다면 동네는 결코 기억하지 못할 겁니다.<br>동네 사람들조차도요.<br><br>'
           +'우리 파프리 세탁소는 <b>유실물을 허락하지 않는</b><br>완벽한 서비스를 제공할 것입니다.<br>'
           +'잊혀진 빨랫감을 찾아 동네에게 돌려주는 것,<br>그것이 우리의 궁극적인 목표입니다.<br><br>'
-          +'그럼, 출발하겠습니다.' },
+          +'<span style="opacity:.75">📞 따르릉—&nbsp; [딸깍]</span><br>'
+          +'자, 이제 시간이 됐네요. 이제 나가봅시다.' },
   1:{ label:'구역 1', btn:'수거 시작', next:'🚶<br>다음 구역',
       title:'첫번째 구역으로 안내할게요',
-      body:'오늘 하루를 수거할 구역은 두 군데입니다.<br><br>'
-          +'앞에 화단이 보이시죠?<br>그 <b>오른편의 오르막</b>이 첫번째 수거 구역입니다.<br>'
-          +'경사가 조금 있지만 높지 않으니,<br>천천히 오르면서 하루를 수거해 주세요.<br><br>'
-          +'첫 근무라 막막할 테니 팁을 드릴게요.<br>'
+      body:'오늘 여러분이 빨랫감을 수거할 구역은 두 군데입니다.<br><br>'
+          +'앞에 화단이 보이시죠?<br>그 <b>오른편에 위치한 오르막</b>이<br>여러분이 첫번째로 수거할 구역입니다.<br>'
+          +'약간 경사가 있기는 하지만 많이 높지 않으니,<br>천천히 오르면서 빨래를 수거해 주세요.<br><br>'
+          +'첫 근무에 막막할지 모르니 팁을 조금 드리겠습니다.<br>'
           +'<b>누군가의 하루가 느껴지는,<br>오늘만 만날 수 있는,<br>곧 사라질지 모르는 것들</b>을 찾아보세요.<br>'
           +'그것들이 우리가 수거해야 할 하루입니다.<br><br>'
           +'📷 눈에 밟히면 찍어서 오려 🧺 담아 두세요.<br>자, 출발할까요?' },
@@ -2214,20 +2216,33 @@ const STAGES = {
           +'이 골목에도 숨겨진 빨랫감들이 있습니다.<br>계속 수거해 주세요.' },
   3:{ label:'옥상 · 세탁', btn:'세탁 시작', next:'🌞<br>건조 완료',
       title:'이제, 세탁할 차례입니다',
-      body:'다들 수고 많으셨습니다.<br>이곳까지 오는 짧다면 짧은 시간 동안,<br>여러분도 이 동네의 하루에 함께하게 되었습니다.<br><br>'
-          +'🧺 바구니에서 빨랫감을 꺼내,<br><b>오늘 여러분의 하루와 어울리는 세제</b>를 넣어주세요.<br>'
-          +'세탁을 통해, 빨랫감에 밴 하루가 소리로 변환됩니다.<br><br>'
-          +'세탁을 마친 빨랫감은 빨랫줄에 넙니다.<br>'
-          +'줄이 화면보다 길어서, <b>리본으로 나눈 구간</b> 중<br>'
-          +'서 있는 구간을 골라 그 부분만 그으면 돼요.' },
+      body:'다들 수고 많으셨습니다.<br>이제 수거해온 것들을 세탁할 차례입니다.<br><br>'
+          +'이곳까지 오는 짧다면 짧은 시간 동안,<br>여러분도 이 동네의 하루에 함께하게 되었습니다.<br><br>'
+          +'🧺 바구니에서 빨랫감을 꺼내,<br><b>오늘 여러분의 하루와 어울리는 세제</b>를 넣고<br>세탁해 주세요.<br>'
+          +'저희 파프리 세탁소만의 특허기술<br><b>콤퓨타-컨버팅</b>은 기억들을 진동으로 변환해줍니다.<br><br>'
+          +'세탁한 빨랫감은 바로 빨랫줄에 넙니다.<br>'
+          +'각자, 가장 <b>어울린다고 생각하는 위치</b>에 배치해주세요.<br>'
+          +'<span style="opacity:.8">(줄이 화면보다 길면, 리본으로 나눈 구간 중<br>서 있는 구간을 골라 그 부분만 그으면 돼요)</span>' },
   4:{ label:'반납 · 진동', btn:'진동 재생',
       title:'건조가 완료되었습니다!',
-      body:'이제, 이 빨래들을 돌려줄 차례입니다.<br>'
-          +'저희 파프리 세탁소만의 특허기술<br><b>콤퓨타-컨버팅</b>은 기억을 진동으로 변환합니다.<br><br>'
-          +'당신의 손에서 울리는 진동은<br>팔로, 다리로, 발밑으로 흘러갑니다.<br>'
-          +'당신이 밟고 있는 이 땅은<br>이 진동을 기억할 것입니다.<br><br>'
-          +'진동은 결국 휘발되지만,<br>기억은 오래 남습니다.' },
+      body:'이제, 이 빨래들을 돌려줄 차례입니다.<br><br>'
+          +'동네가 이 작은 흔들림을 통해<br>기억을 상기시킬 수 있도록,<br>진동을 재생시켜주세요.' },
 };
+function showClosing(){
+  state.closing=true;
+  $('stageTitle').innerText='오늘의 영업을 마칩니다';
+  $('stageBody').innerHTML=
+    '당신의 손에서 울리는 진동은<br>당신의 팔로, 다리로, 발밑으로 흘러갑니다.<br>'
+    +'당신이 밟고 있는 이 땅은<br>이 진동을 기억할 것입니다.<br><br>'
+    +'진동은 결국 휘발되지만,<br><b>기억은 오래 남을 것입니다.</b><br><br>'
+    +'<span style="opacity:.7">— 파프리 콤퓨타세탁소 드림</span>';
+  $('missionGo').textContent='닫기';
+  $('missionGo').style.display='';
+  $('muteWarn').style.display='none';
+  $('btnNext').style.display = (RopeShare.isHost || !FB_CONFIGURED) ? '' : 'none';
+  $('btnNext').innerHTML='📳<br>재가동';
+  $('missionIntro').style.display='flex';
+}
 function showWaiting(){
   $('stageTitle').innerText='출근 완료 🧺';
   $('stageBody').innerHTML='사장님이 곧 영업을 시작합니다.<br>화면을 켠 채 잠시만 기다려주세요.'
@@ -2258,20 +2273,24 @@ function showStage(n, isCatchUp){
   $('mode-label').textContent=st.label;
   $('muteWarn').style.display = n<=1 ? '' : 'none';
   const leader = RopeShare.isHost || !FB_CONFIGURED;   // 직원은 연결이 늦어도 리더가 되지 않는다
-  $('btnNext').style.display  = (leader && n>=1 && n<4) ? '' : 'none';
+  $('btnNext').style.display  = (leader && n>=1) ? '' : 'none';
   $('missionGo').style.display = (n===4 && !leader) ? 'none' : '';
   if(n===4 && !leader){
     $('stageBody').innerHTML += '<br><b>곧, 모든 폰이 함께 가동됩니다.</b>';
   }
-  if(st.next) $('btnNext').innerHTML=st.next;
+  $('btnNext').innerHTML = st.next || '📳<br>재가동';
   $('btnPlay').style.display  = n>=3 ? '' : 'none';
   $('btnCal').style.display   = n>=3 ? '' : 'none';
   $('missionIntro').style.display='flex';
   if(!isCatchUp) playNarr(n);   // 따라잡기 카드는 소리 없이
 }
-$('btnNext').addEventListener('click', ()=>{ RopeShare.broadcastStage(Math.min(4, (state.stage||1)+1)); });
+$('btnNext').addEventListener('click', ()=>{
+  if((state.stage||0)>=4){ $('missionIntro').style.display='none'; RopeShare.cueAll(); }   // 앙코르
+  else RopeShare.broadcastStage(Math.min(4, (state.stage||1)+1));
+});
 
 $('missionGo').addEventListener('click', ()=>{
+  if(state.closing){ state.closing=false; $('missionIntro').style.display='none'; return; }
   if(state.stage===0){
     if(RopeShare.isHost || !FB_CONFIGURED) RopeShare.broadcastStage(1);
     else $('missionIntro').style.display='none';   // 직원은 읽고 닫기 — 사장님이 곧 넘겨준다
