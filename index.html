@@ -300,7 +300,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v30</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v31</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -1470,10 +1470,10 @@ const RopeShare = {
   },
   _stageInit: false,
   onStage(d){
-    if(!d || !d.n || d.at===this._lastStageAt) return;
-    this._lastStageAt = d.at;
-    const isCatchUp = !this._stageInit;   // 접속 시 남아 있던 진행 상태
+    const isCatchUp = !this._stageInit;   // 첫 구독 응답이면 따라잡기
     this._stageInit = true;
+    if(!d || typeof d.n!=='number' || d.at===this._lastStageAt) return;   // 0단계(개점)도 유효
+    this._lastStageAt = d.at;
     if(!state.entered){ this.pendingStage = d.n; return; }
     if(d.n !== state.stage) showStage(d.n, isCatchUp);
   },
@@ -1529,9 +1529,8 @@ const RopeShare = {
   },
   _cueInit: false,
   onCue(d){
+    // 첫 구독 응답(비어 있든 아니든)은 기준선 — 재생은 그 이후 새 큐에만
     if(!this._cueInit){
-      // 접속 시점에 방에 남아 있던 큐는 기준선으로만 삼는다 —
-      // 재생은 접속 '이후' 진행자가 새로 누른 큐에만 반응
       this._cueInit = true;
       if(d && d.at) this._lastCue = d.at;
       return;
@@ -2150,6 +2149,14 @@ const STAGES = {
           +'당신이 밟고 있는 이 땅은<br>이 진동을 기억할 것입니다.<br><br>'
           +'진동은 결국 휘발되지만,<br>기억은 오래 남습니다.' },
 };
+function showWaiting(){
+  $('stageTitle').innerText='접수 완료 🧺';
+  $('stageBody').innerHTML='사장님이 곧 영업을 시작합니다.<br>화면을 켠 채 잠시만 기다려주세요.';
+  $('missionGo').style.display='none';
+  $('btnNext').style.display='none';
+  $('muteWarn').style.display='';
+  $('missionIntro').style.display='flex';
+}
 function showStage(n, isCatchUp){
   state.stage=n;
   state.lastStageCatchUp=!!isCatchUp;   // 나레이션: 따라잡기 카드는 소리 없이
@@ -2225,7 +2232,14 @@ function enterStage(modeLabel){
   $('toolbar').style.display='flex';
   $('mode-label').textContent=modeLabel;
   state.entered=true;
-  showStage(RopeShare.pendingStage || 0);
+  if(RopeShare.pendingStage!=null){
+    showStage(RopeShare.pendingStage, true);           // 늦게 연 폰: 현재 진행으로 따라잡기
+  } else if(RopeShare.isHost || !RopeShare.api){
+    if(RopeShare.isHost) RopeShare.broadcastStage(0);  // 진행자: 모두의 개점을 연다
+    else showStage(0);                                  // 혼자 모드
+  } else {
+    showWaiting();                                      // 참가자: 사장님을 기다린다
+  }
   RopeShare.pendingStage=null;
 }
 $('setupLive').addEventListener('click', async ()=>{
