@@ -309,7 +309,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v48</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v49</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -1478,9 +1478,10 @@ const NARR_SEQ = {
   0: ['narr/narr0.mp3','narr/narr1.mp3','narr/narr2.mp3','narr/narr3.mp3','narr/ring.mp3','narr/go.mp3'],
   1: ['narr/zone1_a.mp3','narr/zone1_b.mp3','narr/zone1_c.mp3'],
   2: ['narr/zone2.mp3'],
-  3: ['narr/wash.mp3'],
-  // 녹음이 오면 추가: 4건조완료
-  // 0번 끝의 [따르릉—딸깍 / 자 이제 시간이 됐네요] 녹음도 오면 0번 배열 끝에 추가
+  3: ['narr/moveup.mp3'],          // 두번째 골목 수거 완료 → 옥상으로
+  4: ['narr/wash.mp3'],            // 옥상 도착 — 세탁 안내
+  5: ['narr/dry_a.mp3','narr/dry_b.mp3'],   // 건조 완료 → 진동 재생시켜주세요
+  end: ['narr/end.mp3'],           // 폐점 — 연주가 끝난 뒤
 };
 const narrBufs = {};
 function loadNarr(url){
@@ -1959,7 +1960,7 @@ function play(){
     });
     if(el < PLAY_SECONDS){ requestAnimationFrame(step); }
     else { state.playing=false; $('btnPlay').disabled=false; ph.style.display='none';
-           if(state.stage>=4) showClosing(); else toast('기억은 오늘에서 내일로 이어집니다', 4000); }
+           if(state.stage>=5) showClosing(); else toast('기억은 오늘에서 내일로 이어집니다', 4000); }
   })();
 }
 
@@ -2221,7 +2222,11 @@ const STAGES = {
       title:'다음 골목으로 넘어가겠습니다',
       body:'앞에 있는 인솔자의 안내에 따라<br>이동해 주세요.<br><br>'
           +'빨랫감을 찾아주세요.' },
-  3:{ label:'옥상 · 세탁', btn:'세탁 시작', next:'🌞<br>건조 완료',
+  3:{ label:'이동 · 옥상', btn:'이동 시작', next:'🏠<br>옥상 도착',
+      title:'두번째 구역, 수거 완료',
+      body:'이제 옥상으로 올라갑니다.<br><br>'
+          +'앞에 있는 인솔자의 안내에 따라<br>이동해 주세요.' },
+  4:{ label:'옥상 · 세탁', btn:'세탁 시작', next:'🌞<br>건조 완료',
       title:'이제, 세탁할 차례입니다',
       body:'다들 수고 많으셨습니다.<br>이제 수거해온 것들을 세탁할 차례입니다.<br>'
           +'이곳까지 오는 짧다면 짧은 시간 동안,<br>여러분도 이 동네의 하루에 함께 하게 되었습니다.<br><br>'
@@ -2230,7 +2235,7 @@ const STAGES = {
           +'세탁한 빨랫감은 바로 빨랫줄에 널어봅시다.<br>'
           +'각자 빨랫감이 가장 <b>어울린다고 생각하는 위치</b>에<br>배치해주세요.<br>'
           +'<span style="opacity:.8">(줄이 화면보다 길면, 리본으로 나눈 구간 중<br>서 있는 구간을 골라 그 부분만 그으면 돼요)</span>' },
-  4:{ label:'반납 · 진동', btn:'진동 재생',
+  5:{ label:'반납 · 진동', btn:'진동 재생',
       title:'건조가 완료되었습니다!',
       body:'이제, 이 빨래들을 돌려줄 차례입니다.<br><br>'
           +'동네가 이 작은 흔들림을 통해<br>기억을 상기시킬 수 있도록,<br>진동을 재생시켜주세요.' },
@@ -2249,6 +2254,7 @@ function showClosing(){
   $('btnNext').innerHTML='📳<br>재가동';
   $('narrSkip').style.display='none';
   $('missionIntro').style.display='flex';
+  playNarr('end');
 }
 function showTransit(){
   state.transit=true;
@@ -2297,13 +2303,13 @@ function showStage(n, isCatchUp){
   $('muteWarn').style.display = n<=1 ? '' : 'none';
   const leader = RopeShare.isHost || !FB_CONFIGURED;   // 직원은 연결이 늦어도 리더가 되지 않는다
   $('btnNext').style.display  = (leader && n>=1) ? '' : 'none';
-  $('missionGo').style.display = (n===4 && !leader) ? 'none' : '';
-  if(n===4 && !leader){
+  $('missionGo').style.display = (n===5 && !leader) ? 'none' : '';
+  if(n===5 && !leader){
     $('stageBody').innerHTML += '<br><b>곧, 모든 폰이 함께 가동됩니다.</b>';
   }
   $('btnNext').innerHTML = st.next || '📳<br>재가동';
-  $('btnPlay').style.display  = n>=3 ? '' : 'none';
-  $('btnCal').style.display   = n>=3 ? '' : 'none';
+  $('btnPlay').style.display  = n>=4 ? '' : 'none';
+  $('btnCal').style.display   = n>=4 ? '' : 'none';
   $('missionIntro').style.display='flex';
   $('narrSkip').style.display = (leader && !isCatchUp && NARR_SEQ[n] && NARR_SEQ[n].length) ? '' : 'none';
   if(!isCatchUp) playNarr(n);   // 따라잡기 카드는 소리 없이
@@ -2311,8 +2317,8 @@ function showStage(n, isCatchUp){
 $('narrSkip').addEventListener('click', ()=>{ stopNarr(); $('narrSkip').style.display='none'; });
 $('btnNext').addEventListener('click', ()=>{
   const cur = (typeof state.stage==='number') ? state.stage : 0;
-  if(cur>=4){ $('missionIntro').style.display='none'; RopeShare.cueAll(); }   // 앙코르
-  else RopeShare.broadcastStage(Math.min(4, cur+1));
+  if(cur>=5){ $('missionIntro').style.display='none'; RopeShare.cueAll(); }   // 앙코르
+  else RopeShare.broadcastStage(Math.min(5, cur+1));
 });
 
 $('missionGo').addEventListener('click', ()=>{
@@ -2323,8 +2329,8 @@ $('missionGo').addEventListener('click', ()=>{
     return;
   }
   $('missionIntro').style.display='none';
-  if(state.stage===3 && state.basket.length){ updateBasket(); $('basketSheet').style.display='block'; }
-  if(state.stage===4 && !state.playing) RopeShare.cueAll();
+  if(state.stage===4 && state.basket.length){ updateBasket(); $('basketSheet').style.display='block'; }
+  if(state.stage===5 && !state.playing) RopeShare.cueAll();
   hint('흩어진 시간의 조각을 모으는 중 🧺');
 });
 
