@@ -283,7 +283,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v22</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v23</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -356,17 +356,17 @@
 
 <div id="noteSheet">
   <div class="thumb" id="noteThumb"></div>
-  <h3 id="noteTitle">이 조각을 어떤 향으로 헹굴까요?</h3>
+  <h3 id="noteTitle">이 빨랫감, 어떤 세제로 세탁할까요?</h3>
   <div class="sub" id="noteBase">조각에서 소리를 우려내는 중…</div>
   <div class="row">
-    <button id="notePlayBase">▶ 헹구기 전 소리</button>
+    <button id="notePlayBase">▶ 세탁 전 소리</button>
   </div>
   <div id="scentGrid"></div>
   <div id="scentDesc">향을 고르면 그 결로 소리가 헹궈져요</div>
   <div class="sub" style="font-size:10.5px; opacity:.65">소리가 안 들리면 기기 무음 모드를 확인해주세요</div>
   <div class="row">
-    <button id="noteSkip">향 없이 담기</button>
-    <button id="noteOk" class="primary">이 향으로 담기</button>
+    <button id="noteSkip">세탁 없이 널기</button>
+    <button id="noteOk" class="primary">세탁 완료 — 널기</button>
   </div>
 </div>
 
@@ -1031,9 +1031,7 @@ function askNote(item){
     const cv=document.createElement('canvas'); cv.width=200; cv.height=70;
     drawWaveform(cv, item.buffer); th.appendChild(cv);
   }
-  $('noteTitle').textContent = item.kind==='photo'
-    ? '이 장면을 어떤 향으로 헹굴까요?'
-    : '이 소리를 어떤 향으로 헹굴까요?';
+  $('noteTitle').textContent = '이 빨랫감, 어떤 세제로 세탁할까요?';
   const nb=$('noteBase');
   if(item.kind==='photo'){
     nb.textContent = describeTimbre(item.timbre, item.pitch);
@@ -1047,7 +1045,7 @@ function askNote(item){
     nb.textContent='조각이 낸 소리: 당신이 담은 그 자리의 소리 그대로';
   }
   renderScents(null);
-  $('scentDesc').textContent='향을 고르면 그 결로 소리가 헹궈져요';
+  $('scentDesc').textContent='오늘 당신의 하루와 어울리는 세제를 넣어주세요';
   $('noteSheet').style.display='flex';
 }
 /* ---------- 여섯 가지 섬유유연제 향 ----------
@@ -1168,7 +1166,8 @@ function closeNote(withScent){
   item.scentId= sc ? sc.id : null;
   item.recipe = sc ? sc.recipe : null;
   item.mod    = readSentence('');
-  basketAdd(item);
+  item.washed = true;
+  placeItem(item);   // 세탁을 마쳤으니 널어볼까요
 }
 
 $('noteSheet').addEventListener('pointerdown', e=>{
@@ -1188,7 +1187,7 @@ $('noteSheet').addEventListener('pointerdown', e=>{
   e.preventDefault(); e.stopPropagation();
   b.classList.add('pressed'); setTimeout(()=>b.classList.remove('pressed'),180);
   if(b.id==='noteOk'){
-    if(!notePending || !notePending.scent){ toast('향을 하나 골라주세요 — 그냥 담으려면 [향 없이 담기]'); return; }
+    if(!notePending || !notePending.scent){ toast('세제를 하나 골라주세요 — 그대로 널려면 [세탁 없이 널기]'); return; }
     closeNote(true);
   }
   else if(b.id==='noteSkip') closeNote(false);
@@ -1200,7 +1199,7 @@ $('noteSheet').addEventListener('pointerdown', e=>{
 function addPhotoFrag(imgSrc, isCut){
   const item={kind:'photo', img:imgSrc, cut:!!isCut, timbre:null, pitch:null, note:'', mod:readSentence('')};
   analyzeImageTimbre(imgSrc).then(tb=>{ item.timbre=tb; item.pitch=pitchOfTimbre(tb); });
-  askNote(item);
+  basketAdd(item);   // 골목에선 줍기만 — 세탁(세제)은 옥상에서
 }
 function addSoundFrag(buffer){
   askNote({kind:'sound', buffer, rate:1, note:'', mod:readSentence('')});
@@ -1210,7 +1209,7 @@ function basketAdd(item){
   state.basket.push(item);
   updateBasket();
   toast('🧺 빨래바구니에 담았습니다 ('+state.basket.length+')');
-  if(state.basket.length===3) hint('조각이 모였어요 — 마을이 내려다보이는 곳에서 줄에 걸어주세요');
+  if(state.basket.length===3) hint('빨랫감이 모이고 있어요 — 세탁은 옥상에서 한꺼번에 합니다');
 }
 function updateBasket(){
   const b=$('basketBadge');
@@ -1233,6 +1232,7 @@ function updateBasket(){
 }
 function placeItem(item){
   $('basketSheet').style.display='none';
+  if(item.kind==='photo' && !item.washed){ askNote(item); return; }   // 세탁부터
   if(!ready()){
     state.pendingPlace=item;
     startCalibration();
@@ -1978,19 +1978,29 @@ $('btnDemo').addEventListener('click', ()=>{
 /* ---------- 동선 = 서사: 스튜디오(개점) → 골목1 → 골목2 → 옥상(일광건조) ----------
    장소에 도착할 때마다 사장님 대본 카드가 뜨고, 연주·줄긋기는 옥상에서 열린다. */
 const STAGES = {
-  1:{ label:'골목 1', btn:'수거 시작',
-      title:'첫번째 골목에 도착했습니다',
-      body:'곧 사라질 수도 있는,<br>하지만 남기고 싶은 <b>빨랫감</b>을 찾아주세요.<br><br>'
-          +'📷 눈에 밟히면 찍어서 오리고<br>🧺 향을 골라 바구니에 담아 두세요.' },
-  2:{ label:'골목 2', btn:'수거 계속',
-      title:'두번째 골목에 도착했습니다',
-      body:'빨랫감을 찾아주세요.<br><br>🧺 담아둔 빨랫감은 옥상에서 한꺼번에 널게 됩니다.' },
-  3:{ label:'옥상 · 일광건조', btn:'줄 긋고 널기',
-      title:'이제, 일광건조가 필요합니다',
-      body:'빨랫감을 모두 각자만의 방식으로 세탁해 주셨나요?<br><br>'
-          +'눈앞의 빨랫줄을 <b>왼쪽 끝에서 오른쪽 끝으로</b> 따라 긋고,<br>'
-          +'빨랫감이 가장 <b>어울린다고 생각하는 위치</b>에 널어주세요.<br><br>'
-          +'우리는 이 빨래들을 소리로 번역해서,<br>동네에게 다시 들려줄 것입니다.' },
+  1:{ label:'구역 1', btn:'수거 시작', next:'🚶<br>다음 구역',
+      title:'첫번째 수거 구역입니다',
+      body:'약간 경사가 있지만, 천천히 오르며<br>하루를 수거해 주세요.<br><br>'
+          +'<b>누군가의 하루가 느껴지는,<br>오늘만 만날 수 있는,<br>곧 사라질지 모르는 것들</b>을 찾아보세요.<br>'
+          +'그것들이 우리가 수거해야 할 하루입니다.<br><br>'
+          +'📷 눈에 밟히면 찍어서 오려 🧺 담아 두세요.' },
+  2:{ label:'구역 2', btn:'수거 계속', next:'🚶<br>옥상으로',
+      title:'다음 골목으로 넘어가겠습니다',
+      body:'앞에 있는 인솔자의 안내에 따라<br>이동해 주세요.<br><br>이 골목의 하루도 수거해 주세요.' },
+  3:{ label:'옥상 · 세탁', btn:'세탁 시작', next:'🌞<br>건조 완료',
+      title:'이제, 세탁할 차례입니다',
+      body:'다들 수고 많으셨습니다.<br>이곳까지 오는 동안 여러분도<br>이 동네의 하루에 함께하게 되었습니다.<br><br>'
+          +'🧺 바구니에서 빨랫감을 꺼내,<br><b>오늘 여러분의 하루와 어울리는 세제</b>를 넣어주세요.<br>'
+          +'세탁을 통해, 빨랫감에 밴 하루가 소리로 변환됩니다.<br><br>'
+          +'세탁을 마친 빨랫감은<br>눈앞의 빨랫줄을 <b>왼쪽 끝에서 오른쪽 끝으로</b> 그은 뒤<br>'
+          +'가장 어울린다고 생각하는 위치에 널어주세요.' },
+  4:{ label:'반납 · 진동', btn:'진동 재생',
+      title:'건조가 완료되었습니다!',
+      body:'이제, 이 빨래들을 돌려줄 차례입니다.<br>'
+          +'저희 파프리 세탁소만의 특허기술<br><b>콤퓨타-컨버팅</b>은 기억을 진동으로 변환합니다.<br><br>'
+          +'당신의 손에서 울리는 진동은<br>팔로, 다리로, 발밑으로 흘러갑니다.<br>'
+          +'당신이 밟고 있는 이 땅은<br>이 진동을 기억할 것입니다.<br><br>'
+          +'진동은 결국 휘발되지만,<br>기억은 오래 남습니다.' },
 };
 function showStage(n){
   state.stage=n;
@@ -2000,16 +2010,18 @@ function showStage(n){
   $('missionGo').textContent=st.btn;
   $('mode-label').textContent=st.label;
   $('muteWarn').style.display = n===1 ? '' : 'none';
-  $('btnNext').style.display  = n<3 ? '' : 'none';
+  $('btnNext').style.display  = n<4 ? '' : 'none';
+  if(st.next) $('btnNext').innerHTML=st.next;
   $('btnPlay').style.display  = n>=3 ? '' : 'none';
   $('btnCal').style.display   = n>=3 ? '' : 'none';
   $('missionIntro').style.display='flex';
 }
-$('btnNext').addEventListener('click', ()=>{ showStage(Math.min(3, (state.stage||1)+1)); });
+$('btnNext').addEventListener('click', ()=>{ showStage(Math.min(4, (state.stage||1)+1)); });
 
 $('missionGo').addEventListener('click', ()=>{
   $('missionIntro').style.display='none';
-  if(state.stage===3 && !ready()) startCalibration();
+  if(state.stage===3 && state.basket.length){ updateBasket(); $('basketSheet').style.display='block'; }
+  if(state.stage===4 && state.frags.length && !state.playing) play();
   hint('흩어진 시간의 조각을 모으는 중 🧺');
 });
 
