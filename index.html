@@ -224,8 +224,11 @@
     border-bottom:none; box-shadow:0 2px 10px rgba(0,0,0,.35); }
   #topbar::after { content:''; position:absolute; left:0; right:0; bottom:-8px; height:8px;
     background:repeating-linear-gradient(90deg, var(--lb) 0 22px, #fff 22px 44px); opacity:.92; }
-  #topbar h1 { font-size:17px; font-weight:400; color:#fff;
-    text-shadow:1.5px 1.5px 0 var(--lb); }
+  #topbar { align-items:center; gap:10px; }
+  #topbar h1 { font-size:14.5px; font-weight:400; color:#fff; line-height:1.18;
+    text-shadow:1.2px 1.2px 0 var(--lb); white-space:nowrap; }
+  #tbRight { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+  #tbRight .tbrow { display:flex; gap:6px; align-items:center; white-space:nowrap; }
   #topbar .sub { color:#eaffe9; }
   #topbar .sign-sub { background:var(--lb); color:#fff; padding:2px 8px; border-radius:999px;
     font-size:10px; }
@@ -303,7 +306,11 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v36</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리<br>콤퓨타세탁소</h1>
+  <div id="tbRight">
+    <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v37</span><span class="sub" id="shareDot"></span></div>
+  </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -1465,33 +1472,39 @@ setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조�
    카드가 '방송으로' 넘어오는 순간 = 모든 폰에서 같은 목소리가 울리는 순간.
    HTMLAudio 대신 WebAudio 버퍼로 재생 — 제스처 없이 도착하는 방송에서도 iOS에서 소리가 난다. */
 const FB_CONFIGURED = true;   // 방송(Firebase) 사용 여부 — 연결 지연과 무관한 고정 사실
-const NARR_FILES = {0:'narr/narr0.mp3', 1:'narr/narr1.mp3', 2:'narr/narr2.mp3',
-                    3:'narr/narr3.mp3', 4:'narr/narr4.mp3'};
-const narrBuf = {};
-let narrSrc = null;
-let narrWanted = null;   // 아직 로딩 중일 때 예약된 나레이션
-function preloadNarr(){
-  Object.keys(NARR_FILES).forEach(k=>{
-    if(narrBuf[k]) return;
-    fetch(NARR_FILES[k]).then(r=>r.arrayBuffer())
-      .then(ab=>ensureAudio().decodeAudioData(ab))
-      .then(b=>{
-        narrBuf[k]=b;
-        if(String(narrWanted)===String(k)){ const n=narrWanted; narrWanted=null; playNarr(n); }
-      }).catch(()=>{});
-  });
+const NARR_SEQ = {
+  0: ['narr/narr0.mp3','narr/narr1.mp3','narr/narr2.mp3','narr/narr3.mp3','narr/narr4.mp3'],
+  // 구역1/구역2/세탁/건조 나레이션은 녹음이 오면 여기에 추가
+};
+const narrBufs = {};
+function loadNarr(url){
+  if(!narrBufs[url])
+    narrBufs[url] = fetch(url).then(r=>r.arrayBuffer()).then(ab=>ensureAudio().decodeAudioData(ab));
+  return narrBufs[url];
 }
-function stopNarr(){ if(narrSrc){ try{narrSrc.stop();}catch(e){} narrSrc=null; } }
-function playNarr(n){
-  const b=narrBuf[n];
-  if(!b){ narrWanted=n; preloadNarr(); return; }   // 로딩이 끝나면 이 카드 나레이션이 이어서 나온다
-  narrWanted=null;
-  stopNarr();
-  const ac=ensureAudio();
-  const src=ac.createBufferSource(); src.buffer=b;
-  const g=ac.createGain(); g.gain.value=1.0;
-  src.connect(g); g.connect(ac.destination);   // 리버브 없이 또렷하게
-  src.start(); narrSrc=src;
+function preloadNarr(){
+  Object.values(NARR_SEQ).forEach(seq=>seq.forEach(u=>{ loadNarr(u).catch(()=>{ delete narrBufs[u]; }); }));
+}
+let narrToken=0, narrSrc=null;
+function stopNarr(){ narrToken++; if(narrSrc){ try{narrSrc.stop();}catch(e){} narrSrc=null; } }
+async function playNarr(n){
+  stopNarr();   // 카드가 바뀌면 이전 나레이션은 항상 멈춘다
+  const seq=NARR_SEQ[n]; if(!seq || !seq.length) return;
+  const my=narrToken;
+  for(const url of seq){                    // 파일 여러 개를 한 호흡으로 이어 튼다
+    let buf;
+    try{ buf=await loadNarr(url); }catch(e){ delete narrBufs[url]; continue; }
+    if(my!==narrToken) return;              // 다음 카드로 넘어갔으면 중단
+    await new Promise(done=>{
+      const ac=ensureAudio();
+      const src=ac.createBufferSource(); src.buffer=buf;
+      const g=ac.createGain(); g.gain.value=1.0;
+      src.connect(g); g.connect(ac.destination);
+      src.onended=done;
+      narrSrc=src; src.start();
+    });
+    if(my!==narrToken) return;
+  }
 }
 
 /* 새 영업일: 줄과 바구니를 모두 비운다 */
