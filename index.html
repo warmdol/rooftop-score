@@ -147,6 +147,22 @@
   .scent.on { border-color:var(--accent); background:rgba(255,217,122,.16); color:var(--accent); }
   .scent:active { transform:scale(.96); }
   #scentDesc { font-size:11.5px; color:var(--accent); min-height:16px; text-align:center; }
+  #segSheet { position:fixed; inset:0; z-index:56; background:var(--paper); color:var(--paper-ink);
+    display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    padding:28px; text-align:center; }
+  #segSheet::before { content:''; position:absolute; top:0; left:0; right:0; height:14px;
+    background:repeating-linear-gradient(90deg, var(--lb) 0 24px, #fff 24px 48px); }
+  #segSheet h3 { font-family:'Jua',system-ui,sans-serif; font-weight:400; font-size:19px; color:var(--lg-dark); }
+  #segSheet .sub2 { font-size:12.5px; color:#5d6d55; line-height:1.7; max-width:330px; }
+  #segRow { display:flex; gap:8px; }
+  .segBtn { min-width:92px; padding:16px 10px; border-radius:14px; border:2px solid #cfe0c8;
+    background:#fff; color:#2c3a26; font-family:'Jua',system-ui,sans-serif; font-size:14px; line-height:1.5; }
+  .segBtn:active { transform:scale(.96); }
+  #segAll { padding:12px 18px; border-radius:12px; border:2px solid #cfe0c8; background:#fff;
+    color:#5d6d55; font-size:12.5px; }
+  .edgeBadge { position:fixed; top:46%; z-index:30; display:none; padding:9px 11px; border-radius:999px;
+    background:rgba(28,79,160,.88); color:#fff; font-size:13px; font-weight:700; border:none; }
+  #edgeL { left:8px; } #edgeR { right:8px; }
   #noteChips { display:flex; flex-wrap:wrap; gap:5px; justify-content:center;
     width:min(360px,92vw); }
   .chip { font-size:10.5px; padding:4px 8px; border-radius:9px; line-height:1.2;
@@ -283,7 +299,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v23</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v24</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -376,6 +392,19 @@
   <button id="recStop">그만 담기</button>
 </div>
 
+<div id="segSheet">
+  <h3>지금, 줄의 어느 부분 앞에 서 있나요?</h3>
+  <div class="sub2">실제 빨랫줄이 화면보다 길어서,<br>줄에 묶인 <b>리본을 기준으로 세 구간</b>을 나눠 넙니다.<br>
+    서 있는 구간을 고르고, 눈앞에 보이는 그 구간만 그으면 돼요.</div>
+  <div id="segRow">
+    <button class="segBtn" data-seg="1">①<br>왼쪽 끝</button>
+    <button class="segBtn" data-seg="2">②<br>가운데</button>
+    <button class="segBtn" data-seg="3">③<br>오른쪽 끝</button>
+  </div>
+  <button id="segAll">줄이 한눈에 다 보여요 — 한 번에 긋기</button>
+</div>
+<button class="edgeBadge" id="edgeL"></button>
+<button class="edgeBadge" id="edgeR"></button>
 <div id="toast"></div>
 
 <input type="file" id="fileRope" accept="image/*">
@@ -618,12 +647,34 @@ function makeFragEl(cls){
   arLayer.appendChild(el);
   return el;
 }
+/* ---------- 구간 좌표계 ----------
+   실제 줄에 묶인 리본이 줄을 세 구간으로 나눈다(물리 앵커).
+   악보 좌표 t는 항상 줄 전체 기준(0~1)이고, 화면에는 서 있는 구간만 그려진다. */
+function segN(){ return state.segCount||1; }
+function toGlobalT(l){ return ((state.seg||1)-1 + Math.max(0,Math.min(1,l))) / segN(); }
+function toLocalT(g){ return g*segN() - ((state.seg||1)-1); }
+function inSeg(g){ const l=toLocalT(g); return l>=-0.001 && l<=1.001; }
+
 function positionFrag(f){
-  const p=curvePoint(f.t);
+  if(!ready() || f.t===null){ return; }
+  if(!inSeg(f.t)){ f.el.style.display='none'; updateEdges(); return; }
+  f.el.style.display='';
+  const p=curvePoint(toLocalT(f.t));
   f.el.style.left=(p.x - f.el.offsetWidth/2)+'px';
   f.el.style.top=(p.y + 8)+'px';
+  updateEdges();
 }
 function repositionAll(){ state.frags.forEach(positionFrag); }
+function updateEdges(){
+  if(segN()===1){ $('edgeL').style.display='none'; $('edgeR').style.display='none'; return; }
+  let L=0,R=0;
+  state.frags.forEach(f=>{ if(f.t===null) return;
+    const l=toLocalT(f.t); if(l<-0.001) L++; else if(l>1.001) R++; });
+  $('edgeL').style.display = L? 'block':'none'; $('edgeL').textContent='◀ '+L;
+  $('edgeR').style.display = R? 'block':'none'; $('edgeR').textContent=R+' ▶';
+}
+$('edgeL').addEventListener('click', ()=>toast('왼쪽 구간에 널린 빨랫감이에요 — 그쪽으로 걸어가 구간을 다시 골라 그어보세요', 3200));
+$('edgeR').addEventListener('click', ()=>toast('오른쪽 구간에 널린 빨랫감이에요 — 그쪽으로 걸어가 구간을 다시 골라 그어보세요', 3200));
 /* 마름: 걸린 뒤 2분에 걸쳐 소리와 화면이 선명해진다 */
 const DRY_MS = 120000;
 function dryness(f){
@@ -1313,7 +1364,7 @@ function startPlacing(f, msg){
     if(!ready()) return;
     const {t,dist}=nearestT(x,y);
     if(dist<110){
-      f.t=RopeShare.freeSlot(t);      // 이미 걸린 빨래는 비켜 건다
+      f.t=RopeShare.freeSlot(toGlobalT(t));      // 이미 걸린 빨래는 비켜 건다
       f.hungAt=Date.now();
       f.el.style.opacity='1';
       f.el.classList.remove('near','pending');
@@ -1341,7 +1392,7 @@ function bindFrag(f){
     moved=true;
     const r=stage.getBoundingClientRect();
     const {t}=nearestT(e.clientX-r.left, e.clientY-r.top);
-    f.t=t; positionFrag(f);
+    f.t=toGlobalT(t); positionFrag(f);
   });
   f.el.addEventListener('pointerup', e=>{
     if(!dragging) return; dragging=false;
@@ -1401,11 +1452,13 @@ const RopeShare = {
   room: new URLSearchParams(location.search).get('room') || 'main',
   api: null,
   freeSlot(t){
+    const N=state.segCount||1, seg=state.seg||1;
+    const lo=(seg-1)/N+0.004, hi=seg/N-0.004, gap=0.028/N, step=0.033/N;
     let tt=t, guard=0;
-    while(guard++<40 && state.frags.some(x=>x.t!==null && Math.abs(x.t-tt)<0.028)){
-      tt+=0.033; if(tt>0.99) tt-=0.97;
+    while(guard++<60 && state.frags.some(x=>x.t!==null && Math.abs(x.t-tt)<gap)){
+      tt+=step; if(tt>hi) tt=lo+(tt-hi);
     }
-    return Math.max(0, Math.min(1, tt));
+    return Math.max(lo, Math.min(hi, tt));
   },
   thumb(dataUrl, cb){
     const im=new Image();
@@ -1734,8 +1787,13 @@ function play(){
   (function step(){
     const el=(performance.now()-t0)/1000;
     const t=Math.min(1, Math.max(0, el)/PLAY_SECONDS);
-    const p=curvePoint(t);
-    ph.style.left=p.x+'px'; ph.style.top=p.y+'px';
+    if(inSeg(t)){
+      const p=curvePoint(toLocalT(t));
+      ph.style.visibility='visible';
+      ph.style.left=p.x+'px'; ph.style.top=p.y+'px';
+    } else {
+      ph.style.visibility='hidden';
+    }
     state.frags.forEach(f=>{
       if(!rung.has(f.id) && el >= f._trig){
         rung.add(f.id);
@@ -1992,8 +2050,9 @@ const STAGES = {
       body:'다들 수고 많으셨습니다.<br>이곳까지 오는 동안 여러분도<br>이 동네의 하루에 함께하게 되었습니다.<br><br>'
           +'🧺 바구니에서 빨랫감을 꺼내,<br><b>오늘 여러분의 하루와 어울리는 세제</b>를 넣어주세요.<br>'
           +'세탁을 통해, 빨랫감에 밴 하루가 소리로 변환됩니다.<br><br>'
-          +'세탁을 마친 빨랫감은<br>눈앞의 빨랫줄을 <b>왼쪽 끝에서 오른쪽 끝으로</b> 그은 뒤<br>'
-          +'가장 어울린다고 생각하는 위치에 널어주세요.' },
+          +'세탁을 마친 빨랫감은 빨랫줄에 넙니다.<br>'
+          +'줄이 화면보다 길어서, <b>리본으로 나눈 구간</b> 중<br>'
+          +'서 있는 구간을 골라 그 부분만 그으면 돼요.' },
   4:{ label:'반납 · 진동', btn:'진동 재생',
       title:'건조가 완료되었습니다!',
       body:'이제, 이 빨래들을 돌려줄 차례입니다.<br>'
@@ -2039,10 +2098,23 @@ $('btnGyro').addEventListener('click', ()=>{
 
 /* ---------- 보정 ---------- */
 function startCalibration(){
+  $('segSheet').style.display='flex';
+}
+function beginTrace(){
   state.curvePts=null; state.calibrating=true; gyroReset();
   drawRope();
-  hint('손가락으로 실제 줄을 왼쪽 끝에서 오른쪽 끝까지 따라 그으세요');
+  repositionAll();
+  hint(segN()===1
+    ? '손가락으로 실제 줄을 왼쪽 끝에서 오른쪽 끝까지 따라 그으세요'
+    : '눈앞에 보이는 이 구간의 줄을, 구간의 왼쪽에서 오른쪽으로 따라 그으세요');
 }
+$('segSheet').addEventListener('click', e=>{
+  const sb=e.target.closest('.segBtn');
+  if(sb){ state.seg=+sb.dataset.seg; state.segCount=3;
+    $('segSheet').style.display='none'; beginTrace(); return; }
+  if(e.target.id==='segAll'){ state.seg=1; state.segCount=1;
+    $('segSheet').style.display='none'; beginTrace(); }
+});
 $('btnCal').addEventListener('click', startCalibration);
 
 /* ---------- 시작 모드 ---------- */
