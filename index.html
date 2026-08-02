@@ -187,7 +187,7 @@
     background:#e5533d; color:#fff; font-size:15px; font-weight:600; }
 
   /* ---------- 빨래바구니 ---------- */
-  #basketSheet { position:fixed; left:0; right:0; bottom:0; z-index:52; display:none;
+  #basketSheet { position:fixed; left:0; right:0; bottom:0; z-index:52; display:none; /* pos for ✕ */
     background:#15171f; border-radius:20px 20px 0 0; padding:16px 16px 26px; max-height:55vh; overflow-y:auto; }
   #basketSheet h3 { font-size:14px; margin-bottom:4px; }
   #basketSheet .note { font-size:11.5px; color:var(--dim); margin-bottom:12px; }
@@ -294,6 +294,7 @@
   /* 카드가 짧으면 가운데, 길면 위부터 스크롤 — 위 잘림 방지 */
   #missionIntro > :first-child { margin-top:auto; }
   #missionIntro > :last-child { margin-bottom:auto; }
+  #basketSheet { }
 </style>
 </head>
 <body>
@@ -311,7 +312,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v52</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v53</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -344,6 +345,8 @@
 
 <div id="basketSheet">
   <h3>🧺 빨래바구니</h3>
+  <button id="basketClose" style="position:absolute; top:10px; right:12px; width:34px; height:34px;
+    border-radius:50%; border:none; background:rgba(0,0,0,.08); color:#2c3a26; font-size:17px">✕</button>
   <div class="note" id="basketNote"></div>
   <div id="basketGrid"></div>
 </div>
@@ -1309,6 +1312,7 @@ function updateBasket(){
 function placeItem(item){
   if((state.stage||0) < 4){   // 세탁은 옥상에서 — 골목에선 바구니에 모아만 둔다
     toast('🧺 아직 수거 중이에요 — 세탁과 널기는 옥상에서 시작됩니다');
+    $('basketSheet').style.display='none';
     return;
   }
   $('basketSheet').style.display='none';
@@ -1346,6 +1350,7 @@ function beginPlacing(item){
   bindFrag(f);
   startPlacing(f, '시간의 조각을 집어 줄까지 끌어 올려 걸어주세요');
 }
+$('basketClose').addEventListener('click', ()=>{ $('basketSheet').style.display='none'; });
 $('btnBasket').addEventListener('click', ()=>{
   const sh=$('basketSheet');
   if(sh.style.display==='block'){ sh.style.display='none'; return; }
