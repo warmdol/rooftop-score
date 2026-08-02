@@ -299,7 +299,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v24</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v25</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -402,6 +402,14 @@
     <button class="segBtn" data-seg="3">③<br>오른쪽 끝</button>
   </div>
   <button id="segAll">줄이 한눈에 다 보여요 — 한 번에 긋기</button>
+</div>
+<div id="cueOverlay" style="position:fixed; inset:0; z-index:58; display:none;
+  flex-direction:column; align-items:center; justify-content:center; gap:10px;
+  background:rgba(8,9,13,.82);">
+  <div style="font-size:15px; color:#eaffe9; font-family:'Jua',system-ui,sans-serif">콤퓨타-컨버팅 가동</div>
+  <div id="cueNum" style="font-size:88px; font-weight:700; color:var(--accent);
+    font-family:'Jua',system-ui,sans-serif">5</div>
+  <div style="font-size:12.5px; color:var(--dim)">모든 폰이 동시에 진동을 재생합니다</div>
 </div>
 <button class="edgeBadge" id="edgeL"></button>
 <button class="edgeBadge" id="edgeR"></button>
@@ -673,8 +681,8 @@ function updateEdges(){
   $('edgeL').style.display = L? 'block':'none'; $('edgeL').textContent='◀ '+L;
   $('edgeR').style.display = R? 'block':'none'; $('edgeR').textContent=R+' ▶';
 }
-$('edgeL').addEventListener('click', ()=>toast('왼쪽 구간에 널린 빨랫감이에요 — 그쪽으로 걸어가 구간을 다시 골라 그어보세요', 3200));
-$('edgeR').addEventListener('click', ()=>toast('오른쪽 구간에 널린 빨랫감이에요 — 그쪽으로 걸어가 구간을 다시 골라 그어보세요', 3200));
+$('edgeL').addEventListener('click', ()=>{ toast('그쪽으로 걸어가서, 서 있는 구간을 다시 골라주세요', 2600); startCalibration(); });
+$('edgeR').addEventListener('click', ()=>{ toast('그쪽으로 걸어가서, 서 있는 구간을 다시 골라주세요', 2600); startCalibration(); });
 /* 마름: 걸린 뒤 2분에 걸쳐 소리와 화면이 선명해진다 */
 const DRY_MS = 120000;
 function dryness(f){
@@ -1396,10 +1404,11 @@ function bindFrag(f){
   });
   f.el.addEventListener('pointerup', e=>{
     if(!dragging) return; dragging=false;
-    if(!moved){ // 탭 = 선택 토글
+    if(!moved){ // 탭 = 선택 + 그 조각의 소리 한 번
       if(state.selected && state.selected!==f) state.selected.el.classList.remove('selected');
       f.el.classList.toggle('selected');
       state.selected = f.el.classList.contains('selected') ? f : null;
+      previewFrag(f);
     } else {
       RopeShare.move(f);
     }
@@ -1490,12 +1499,48 @@ const RopeShare = {
     else if(type==='change'){ const f=remoteMap[key]; if(f && d && typeof d.t==='number'){ f.t=d.t; if(ready()) positionFrag(f); } }
     else if(type==='remove'){ const f=remoteMap[key]; if(f){ f.el.remove(); state.frags=state.frags.filter(x=>x!==f); delete remoteMap[key]; } }
   },
+  svOffset: 0,
+  _lastCue: 0,
+  cueAll(){
+    // 서버 시계 기준 4.5초 뒤에 모두 함께 시작
+    if(this.api && this.api.cue){
+      this.api.cue({ at: Date.now() + this.svOffset + 4500 });
+    } else {
+      startCueCountdown(Date.now() + 3000);   // 혼자 모드: 내 폰만 카운트다운
+    }
+  },
+  onCue(d){
+    if(!d || !d.at || d.at===this._lastCue) return;
+    this._lastCue = d.at;
+    const localAt = d.at - this.svOffset;
+    if(localAt < Date.now() - 2000) return;   // 지난 큐(새로 접속한 폰)는 무시
+    startCueCountdown(localAt);
+  },
   status(st){
     const el=$('shareDot'); if(!el) return;
     el.textContent = st==='on' ? '🟢 같이 널기' : st==='wait' ? '🟡 연결 중' : '⚪ 혼자 널기';
   },
 };
 RopeShare.status('off');
+
+/* 카운트다운 → 정확히 같은 순간에 연주 시작 */
+let cueTimer=null;
+function startCueCountdown(atMs){
+  if(cueTimer) clearInterval(cueTimer);
+  unlockAudio(); ensureMaster();
+  $('missionIntro').style.display='none';
+  $('cueOverlay').style.display='flex';
+  cueTimer=setInterval(()=>{
+    const left=atMs-Date.now();
+    if(left<=0){
+      clearInterval(cueTimer); cueTimer=null;
+      $('cueOverlay').style.display='none';
+      if(state.frags.length && !state.playing) play();
+    } else {
+      $('cueNum').textContent=Math.ceil(left/1000);
+    }
+  }, 90);
+}
 
 /* ---------- 스테이지 탭: 보정 & 배치 ---------- */
 stage.addEventListener('pointerdown', e=>{
@@ -1787,7 +1832,7 @@ function play(){
   (function step(){
     const el=(performance.now()-t0)/1000;
     const t=Math.min(1, Math.max(0, el)/PLAY_SECONDS);
-    if(inSeg(t)){
+    if(ready() && inSeg(t)){
       const p=curvePoint(toLocalT(t));
       ph.style.visibility='visible';
       ph.style.left=p.x+'px'; ph.style.top=p.y+'px';
@@ -2080,7 +2125,7 @@ $('btnNext').addEventListener('click', ()=>{ showStage(Math.min(4, (state.stage|
 $('missionGo').addEventListener('click', ()=>{
   $('missionIntro').style.display='none';
   if(state.stage===3 && state.basket.length){ updateBasket(); $('basketSheet').style.display='block'; }
-  if(state.stage===4 && state.frags.length && !state.playing) play();
+  if(state.stage===4 && !state.playing) RopeShare.cueAll();
   hint('흩어진 시간의 조각을 모으는 중 🧺');
 });
 
@@ -2103,7 +2148,8 @@ function startCalibration(){
 function beginTrace(){
   state.curvePts=null; state.calibrating=true; gyroReset();
   drawRope();
-  repositionAll();
+  state.frags.forEach(f=>{ f.el.style.display='none'; });   // 새 줄을 긋기 전까지 이전 위치는 무효
+  $('edgeL').style.display='none'; $('edgeR').style.display='none';
   hint(segN()===1
     ? '손가락으로 실제 줄을 왼쪽 끝에서 오른쪽 끝까지 따라 그으세요'
     : '눈앞에 보이는 이 구간의 줄을, 구간의 왼쪽에서 오른쪽으로 따라 그으세요');
@@ -2187,11 +2233,15 @@ if (FB_DB_URL) {
     const db = getDatabase(app);
     const path = 'rooms/' + RopeShare.room + '/frags';
     const base = ref(db, path);
+    const cueRef = ref(db, 'rooms/' + RopeShare.room + '/cue');
     RopeShare.api = {
       push: (d)=>{ const r = push(base); return set(r, d).then(()=>r.key); },
       update: (key, d)=>update(ref(db, path + '/' + key), d),
       remove: (key)=>remove(ref(db, path + '/' + key)),
+      cue: (d)=>set(cueRef, d),
     };
+    onValue(cueRef, sn=>RopeShare.onCue(sn.val()));
+    onValue(ref(db, '.info/serverTimeOffset'), sn=>{ RopeShare.svOffset = sn.val()||0; });
     onChildAdded(base,   sn=>RopeShare.onRemote('add',    sn.key, sn.val()));
     onChildChanged(base, sn=>RopeShare.onRemote('change', sn.key, sn.val()));
     onChildRemoved(base, sn=>RopeShare.onRemote('remove', sn.key, null));
