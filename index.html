@@ -75,8 +75,10 @@
   #btnGyro { margin-left:auto; width:34px; height:34px; border-radius:10px; font-size:15px;
     border:1px solid rgba(255,255,255,.2); background:rgba(24,26,34,.7); opacity:.45; }
   #btnGyro.on { opacity:1; background:var(--accent); }
-  #hint { position:fixed; top:52px; left:0; right:0; text-align:center; z-index:30;
-    font-size:13px; color:var(--accent); text-shadow:0 1px 4px #000; padding:0 20px; }
+  #hint { position:fixed; top:88px; left:50%; transform:translateX(-50%); z-index:30;
+    max-width:86vw; text-align:center; font-size:12.5px; line-height:1.5; color:var(--accent);
+    background:rgba(10,12,16,.74); border:1px solid rgba(255,217,122,.35);
+    border-radius:999px; padding:8px 16px; }
 
   /* ---------- bottom bar ---------- */
   #toolbar { position:fixed; bottom:0; left:0; right:0; z-index:30; padding:10px 12px 18px;
@@ -309,7 +311,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v50</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v51</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -342,7 +344,7 @@
 
 <div id="basketSheet">
   <h3>🧺 빨래바구니</h3>
-  <div class="note">조각을 탭하면 널기가 시작됩니다. 줄이 아직 없으면 먼저 눈앞의 줄을 긋게 안내해요.</div>
+  <div class="note" id="basketNote"></div>
   <div id="basketGrid"></div>
 </div>
 
@@ -1347,7 +1349,10 @@ function beginPlacing(item){
 $('btnBasket').addEventListener('click', ()=>{
   const sh=$('basketSheet');
   if(sh.style.display==='block'){ sh.style.display='none'; return; }
-  if(!state.basket.length){ toast('바구니가 비었어요 — 📷/🎙로 채집해보세요'); return; }
+  if(!state.basket.length){ toast('바구니가 비었어요 — 📷로 빨랫감을 수거해보세요'); return; }
+  $('basketNote').textContent = (state.stage||0) < 4
+    ? '수거한 빨랫감이에요. 세탁과 널기는 옥상에 도착하면 시작됩니다 — 지금은 계속 수거!'
+    : '빨랫감을 탭하면 세탁이 시작되고, 세탁을 마치면 바로 줄에 넙니다.';
   updateBasket();
   sh.style.display='block';
 });
@@ -2335,7 +2340,7 @@ $('missionGo').addEventListener('click', ()=>{
   $('missionIntro').style.display='none';
   if(state.stage===4 && state.basket.length){ updateBasket(); $('basketSheet').style.display='block'; }
   if(state.stage===5 && !state.playing) RopeShare.cueAll();
-  hint('흩어진 시간의 조각을 모으는 중 🧺');
+  hint('🧺 빨랫감 수거 중 — 눈에 밟히면 📷로 찍어 오리세요');
 });
 
 /* ---------- 자이로 토글 ---------- */
