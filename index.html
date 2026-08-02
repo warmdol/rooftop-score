@@ -100,7 +100,7 @@
 
   /* ---------- 채집 미션 인트로 ---------- */
   #missionIntro { position:fixed; inset:0; z-index:45; display:none; overflow-y:auto;
-    padding-top:34px; padding-bottom:34px;
+    padding-top:34px; padding-bottom:34px; justify-content:flex-start !important;
     background:rgba(8,9,13,.93); flex-direction:column; align-items:center; justify-content:center;
     gap:18px; padding:34px; text-align:center; }
   #missionIntro .rope-art { width:min(300px,80vw); height:60px; }
@@ -286,6 +286,9 @@
   button.tool.primary { background:var(--lg); color:#fff; box-shadow:0 2px 0 var(--lg-dark); }
 
   #toast { background:var(--lb); color:#fff; border:none; }
+  /* 카드가 짧으면 가운데, 길면 위부터 스크롤 — 위 잘림 방지 */
+  #missionIntro > :first-child { margin-top:auto; }
+  #missionIntro > :last-child { margin-bottom:auto; }
 </style>
 </head>
 <body>
@@ -300,7 +303,7 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v33</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
+  <h1>파프리 콤퓨타세탁소</h1><span class="sub sign-sub">세탁편의점 · 옥상직영</span><span class="sub" id="mode-label"></span><span class="sub" id="ver">v35</span><span class="sub" id="shareDot"></span><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
 <div id="hint" style="display:none"></div>
@@ -1458,6 +1461,33 @@ setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조�
   }
 }, 800);
 
+/* ---------- 사장님 나레이션 (광현씨 목소리) ----------
+   카드가 '방송으로' 넘어오는 순간 = 모든 폰에서 같은 목소리가 울리는 순간.
+   HTMLAudio 대신 WebAudio 버퍼로 재생 — 제스처 없이 도착하는 방송에서도 iOS에서 소리가 난다. */
+const FB_CONFIGURED = true;   // 방송(Firebase) 사용 여부 — 연결 지연과 무관한 고정 사실
+const NARR_FILES = {0:'narr/narr0.mp3', 1:'narr/narr1.mp3', 2:'narr/narr2.mp3',
+                    3:'narr/narr3.mp3', 4:'narr/narr4.mp3'};
+const narrBuf = {};
+let narrSrc = null;
+function preloadNarr(){
+  Object.keys(NARR_FILES).forEach(k=>{
+    if(narrBuf[k]) return;
+    fetch(NARR_FILES[k]).then(r=>r.arrayBuffer())
+      .then(ab=>ensureAudio().decodeAudioData(ab))
+      .then(b=>{ narrBuf[k]=b; }).catch(()=>{});
+  });
+}
+function stopNarr(){ if(narrSrc){ try{narrSrc.stop();}catch(e){} narrSrc=null; } }
+function playNarr(n){
+  const b=narrBuf[n]; if(!b) return;
+  stopNarr();
+  const ac=ensureAudio();
+  const src=ac.createBufferSource(); src.buffer=b;
+  const g=ac.createGain(); g.gain.value=1.0;
+  src.connect(g); g.connect(ac.destination);   // 리버브 없이 또렷하게
+  src.start(); narrSrc=src;
+}
+
 /* 새 영업일: 줄과 바구니를 모두 비운다 */
 function clearAllLaundry(){
   state.frags.forEach(f=>{ if(f.el) f.el.remove(); });
@@ -1582,6 +1612,7 @@ $('btnReset').addEventListener('click', ()=>{
 /* 카운트다운 → 정확히 같은 순간에 연주 시작 */
 let cueTimer=null;
 function startCueCountdown(atMs){
+  stopNarr();
   if(cueTimer) clearInterval(cueTimer);
   unlockAudio(); ensureMaster();
   $('missionIntro').style.display='none';
@@ -2180,11 +2211,22 @@ const STAGES = {
 };
 function showWaiting(){
   $('stageTitle').innerText='출근 완료 🧺';
-  $('stageBody').innerHTML='사장님이 곧 영업을 시작합니다.<br>화면을 켠 채 잠시만 기다려주세요.';
+  $('stageBody').innerHTML='사장님이 곧 영업을 시작합니다.<br>화면을 켠 채 잠시만 기다려주세요.'
+    +'<br><br><button id="soloGo" style="display:none; padding:10px 16px; border-radius:11px;'
+    +'border:2px solid #cfe0c8; background:#fff; color:#5d6d55; font-size:12.5px">'
+    +'연결이 안 되나요? — 혼자 진행하기</button>';
   $('missionGo').style.display='none';
   $('btnNext').style.display='none';
   $('muteWarn').style.display='';
   $('missionIntro').style.display='flex';
+  setTimeout(()=>{
+    const b=document.getElementById('soloGo');
+    if(b && state.stage===undefined) b.style.display='';
+  }, 15000);
+  setTimeout(()=>{
+    const b=document.getElementById('soloGo');
+    if(b) b.addEventListener('click', ()=>showStage(0));
+  }, 0);
 }
 function showStage(n, isCatchUp){
   if(n===0 && !isCatchUp && state.frags.length) clearAllLaundry();   // 개점 = 새 영업일
@@ -2196,7 +2238,7 @@ function showStage(n, isCatchUp){
   $('missionGo').textContent=st.btn;
   $('mode-label').textContent=st.label;
   $('muteWarn').style.display = n<=1 ? '' : 'none';
-  const leader = RopeShare.isHost || !RopeShare.api;   // 혼자 모드면 스스로 진행
+  const leader = RopeShare.isHost || !FB_CONFIGURED;   // 직원은 연결이 늦어도 리더가 되지 않는다
   $('btnNext').style.display  = (leader && n>=1 && n<4) ? '' : 'none';
   $('missionGo').style.display = (n===4 && !leader) ? 'none' : '';
   if(n===4 && !leader){
@@ -2206,13 +2248,14 @@ function showStage(n, isCatchUp){
   $('btnPlay').style.display  = n>=3 ? '' : 'none';
   $('btnCal').style.display   = n>=3 ? '' : 'none';
   $('missionIntro').style.display='flex';
+  if(!isCatchUp) playNarr(n);   // 따라잡기 카드는 소리 없이
 }
 $('btnNext').addEventListener('click', ()=>{ RopeShare.broadcastStage(Math.min(4, (state.stage||1)+1)); });
 
 $('missionGo').addEventListener('click', ()=>{
   if(state.stage===0){
-    if(RopeShare.isHost || !RopeShare.api) RopeShare.broadcastStage(1);
-    else $('missionIntro').style.display='none';   // 참가자는 읽고 닫기 — 인솔자가 곧 넘겨준다
+    if(RopeShare.isHost || !FB_CONFIGURED) RopeShare.broadcastStage(1);
+    else $('missionIntro').style.display='none';   // 직원은 읽고 닫기 — 사장님이 곧 넘겨준다
     return;
   }
   $('missionIntro').style.display='none';
@@ -2262,13 +2305,14 @@ function enterStage(modeLabel){
   $('toolbar').style.display='flex';
   $('mode-label').textContent=modeLabel;
   state.entered=true;
+  preloadNarr();
   if(RopeShare.pendingStage!=null){
     showStage(RopeShare.pendingStage, true);           // 늦게 연 폰: 현재 진행으로 따라잡기
-  } else if(RopeShare.isHost || !RopeShare.api){
-    if(RopeShare.isHost) RopeShare.broadcastStage(0);  // 진행자: 모두의 개점을 연다
-    else showStage(0);                                  // 혼자 모드
+  } else if(RopeShare.isHost || !FB_CONFIGURED){
+    if(RopeShare.isHost) RopeShare.broadcastStage(0);  // 사장님: 모두의 개점을 연다
+    else showStage(0);                                  // 혼자 모드(방송 미사용 빌드)
   } else {
-    showWaiting();                                      // 참가자: 사장님을 기다린다
+    showWaiting();                                      // 직원: 사장님을 기다린다
   }
   RopeShare.pendingStage=null;
 }
