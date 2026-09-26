@@ -312,7 +312,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v54</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v55</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -1487,7 +1487,7 @@ setInterval(()=>{   // 줄을 그으면, 그동안 도착해 있던 남의 조�
 /* ---------- 사장님 나레이션 (광현씨 목소리) ----------
    카드가 '방송으로' 넘어오는 순간 = 모든 폰에서 같은 목소리가 울리는 순간.
    HTMLAudio 대신 WebAudio 버퍼로 재생 — 제스처 없이 도착하는 방송에서도 iOS에서 소리가 난다. */
-const FB_CONFIGURED = true;   // 방송(Firebase) 사용 여부 — 연결 지연과 무관한 고정 사실
+const FB_CONFIGURED = !new URLSearchParams(location.search).get('solo');   // ?solo=1 = 관람 모드(혼자 진행)
 const NARR_SEQ = {
   0: ['narr/narr0.mp3','narr/narr1.mp3','narr/narr2.mp3','narr/narr3.mp3','narr/ring.mp3','narr/go.mp3'],
   1: ['narr/zone1_a.mp3','narr/zone1_b.mp3','narr/zone1_c.mp3'],
@@ -2516,7 +2516,8 @@ window.addEventListener('resize', ()=>{ drawRope(); repositionAll(); });
 </script>
 <script type="module">
 /* Realtime Database 주소를 아래에 넣으면 '같이 널기'가 켜집니다. 비워두면 혼자 모드. */
-const FB_DB_URL = "https://rooftop-score-default-rtdb.asia-southeast1.firebasedatabase.app";
+const FB_DB_URL = new URLSearchParams(location.search).get('solo') ? ""
+  : "https://rooftop-score-default-rtdb.asia-southeast1.firebasedatabase.app";
 if (FB_DB_URL) {
   RopeShare.status('wait');
   try {
