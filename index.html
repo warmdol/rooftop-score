@@ -312,7 +312,7 @@
   <h1>파프리<br>콤퓨타세탁소</h1>
   <div id="tbRight">
     <span class="sub sign-sub">세탁편의점 · 옥상직영</span>
-    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v53</span><span class="sub" id="shareDot"></span></div>
+    <div class="tbrow"><span class="sub" id="mode-label"></span><span class="sub" id="ver">v54</span><span class="sub" id="shareDot"></span></div>
   </div><button id="btnSettings" title="AI 설정" style="display:none">⚙️</button>
   <button id="btnGyro" title="자이로 따라가기" style="display:none">📡</button>
 </div>
@@ -1601,12 +1601,25 @@ const RopeShare = {
   svOffset: 0,
   _lastCue: 0,
   cueAll(){
+    this.archiveNow();   // 연주 직전의 악보 전체를 보관함에 — 초기화가 닿지 않는 곳
     // 서버 시계 기준 4.5초 뒤에 모두 함께 시작
     if(this.api && this.api.cue){
       this.api.cue({ at: Date.now() + this.svOffset + 4500 });
     } else {
       startCueCountdown(Date.now() + 3000);   // 혼자 모드: 내 폰만 카운트다운
     }
+  },
+  archiveNow(){
+    if(!this.api || !this.api.snapshot) return;
+    this.api.snapshot().then(frags=>{
+      if(!frags) return;
+      const d=new Date(), pad=n=>String(n).padStart(2,'0');
+      const id=d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())
+              +'-'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds());
+      this.api.archive(id, { at: Date.now()+this.svOffset, frags })
+        .then(()=>toast('📼 오늘의 악보를 보관함에 저장했어요'))
+        .catch(()=>{});
+    }).catch(()=>{});
   },
   _cueInit: false,
   onCue(d){
@@ -1852,7 +1865,7 @@ function ensureMaster(){
   verb.buffer = makeImpulse(ac, 2.4, 2.6);
   const wet = ac.createGain(); wet.gain.value = 0.32;
   verb.connect(wet); wet.connect(inBus);
-  master = { in: inBus, verb };
+  master = { in: inBus, verb, comp };
   return master;
 }
 function outBus(){ return ensureMaster().in; }
@@ -1934,6 +1947,46 @@ function playBuffer(buffer, rate, gain, dry, at, mod){
   return s;
 }
 
+/* ---------- 완성곡 녹음: 커튼콜 연주를 파일로 남긴다 ----------
+   마스터 버스(컴프레서 출력)를 MediaRecorder로 받아, 폐점 카드에서 저장. */
+let recRec=null, recChunks=[], lastRecording=null;
+function recMime(){
+  if(!window.MediaRecorder) return null;
+  const cands=['audio/mp4','audio/webm;codecs=opus','audio/webm'];
+  for(const m of cands){ try{ if(MediaRecorder.isTypeSupported(m)) return m; }catch(e){} }
+  return null;
+}
+function startRecording(){
+  try{
+    const mime=recMime(); if(!mime) return;
+    const ac=ensureAudio(), m=ensureMaster();
+    if(!m.recDest){ m.recDest=ac.createMediaStreamDestination(); m.comp.connect(m.recDest); }
+    recChunks=[];
+    recRec=new MediaRecorder(m.recDest.stream, {mimeType:mime});
+    recRec.ondataavailable=e=>{ if(e.data && e.data.size) recChunks.push(e.data); };
+    recRec.onstop=()=>{
+      if(recChunks.length){
+        lastRecording={ blob:new Blob(recChunks, {type:recRec.mimeType}),
+          ext: recRec.mimeType.indexOf('mp4')>=0 ? 'm4a' : 'webm', at:new Date() };
+      }
+      recRec=null;
+    };
+    recRec.start();
+  }catch(e){ recRec=null; }
+}
+function stopRecording(){ try{ if(recRec && recRec.state!=='inactive') recRec.stop(); }catch(e){} }
+function saveRecording(){
+  if(!lastRecording){ toast('저장할 연주가 아직 없어요 — 진동 재생 후 다시 눌러주세요'); return; }
+  const d=lastRecording.at, pad=n=>String(n).padStart(2,'0');
+  const name='파프리콤퓨타세탁소_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())
+            +'_'+pad(d.getHours())+pad(d.getMinutes())+'.'+lastRecording.ext;
+  const url=URL.createObjectURL(lastRecording.blob);
+  const a=document.createElement('a'); a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
+  toast('🎧 완성곡을 저장했어요 — 파일 앱(다운로드)에서 확인하세요', 3500);
+}
+
 /* ---------- 연주 ---------- */
 const PLAY_SECONDS = 16;
 function play(){
@@ -1942,6 +1995,7 @@ function play(){
   if(state.playing) return;
   const ac=ensureAudio(); ensureMaster();
   state.playing=true; $('btnPlay').disabled=true;
+  startRecording();
   const ph=$('playhead'); ph.style.display='block';
 
   /* 오디오는 박자 격자에 스냅해 미리 정밀 스케줄링, 시각은 rAF로 따라감 */
@@ -1974,6 +2028,7 @@ function play(){
     });
     if(el < PLAY_SECONDS){ requestAnimationFrame(step); }
     else { state.playing=false; $('btnPlay').disabled=false; ph.style.display='none';
+           setTimeout(stopRecording, 2500);   // 잔향까지 담는다
            if(state.stage>=5) showClosing(); else toast('기억은 오늘에서 내일로 이어집니다', 4000); }
   })();
 }
@@ -2272,6 +2327,11 @@ function showClosing(){
   $('btnNext').style.display = (RopeShare.isHost || !FB_CONFIGURED) ? '' : 'none';
   $('btnNext').innerHTML='📳<br>재가동';
   $('narrSkip').style.display='none';
+  $('stageBody').innerHTML += '<br><br><button id="saveMix" style="padding:12px 20px;'
+    +' border-radius:12px; border:2px solid #cfe0c8; background:#fff; color:#2c3a26;'
+    +' font-family:\'Jua\',system-ui,sans-serif; font-size:14px">🎧 완성곡 저장</button>';
+  const sb=document.getElementById('saveMix');
+  if(sb) sb.addEventListener('click', saveRecording);
   $('missionIntro').style.display='flex';
   playNarr('end');
 }
@@ -2461,7 +2521,7 @@ if (FB_DB_URL) {
   RopeShare.status('wait');
   try {
     const {initializeApp} = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
-    const {getDatabase, ref, push, set, update, remove, onChildAdded, onChildChanged, onChildRemoved, onValue} =
+    const {getDatabase, ref, get, push, set, update, remove, onChildAdded, onChildChanged, onChildRemoved, onValue} =
       await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js');
     const app = initializeApp({
       apiKey: "AIzaSyBoaaT26QPgGLb6-f6ixWJ1v8RagmXOD94",
@@ -2480,6 +2540,8 @@ if (FB_DB_URL) {
       cue: (d)=>set(cueRef, d),
       stage: (d)=>set(ref(db, 'rooms/' + RopeShare.room + '/stage'), d),
       reset: ()=>remove(ref(db, 'rooms/' + RopeShare.room)),
+      snapshot: ()=>get(base).then(sn=>sn.val()),
+      archive: (id, d)=>set(ref(db, 'archives/' + RopeShare.room + '/' + id), d),
     };
     onValue(cueRef, sn=>RopeShare.onCue(sn.val()));
     onValue(ref(db, 'rooms/' + RopeShare.room + '/stage'), sn=>RopeShare.onStage(sn.val()));
